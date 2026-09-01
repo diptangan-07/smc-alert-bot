@@ -1,126 +1,111 @@
 import os
 import time
-import threading
 import requests
 import yfinance as yf
-from flask import Flask, render_template
-from google import genai
+import google.generativeai as genai
 
-# Flask Server Init
-app = Flask(__name__, template_folder='.')
+# Configure Gemini AI
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel('gemini-1.5-flash')
 
-# Configs
-GEMINI_API_KEY = "AQ.Ab8RN6L3eQ2UYi6doKNGt84aoxqVfZaVsNI7LD_KwNyKz7ZX6A"
-TELEGRAM_BOT_TOKEN = "8893050202:AAHrl0kzyt5Bjptbuoy9ae2c9SwF0KAOsmE"
-TELEGRAM_CHAT_ID = "7476331970"
+# Telegram Configs
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-# Gemini Client Init
-client = genai.Client(api_key=GEMINI_API_KEY)
-
-# Assets Mapping
 ASSETS = {
-    "GOLD": "GC=F",
-    "SILVER": "SI=F",
-    "BTC": "BTC-USD",
-    "ETH": "ETH-USD",
-    "NIFTY50": "^NSEI",
-    "SENSEX": "^BSESN"
+    "Gold": "GC=F",
+    "Bitcoin": "BTC-USD",
+    "Ethereum": "ETH-USD",
+    "Nifty 50": "^NSEI",
+    "Sensex": "^BSESN"
 }
 
-def send_telegram(msg):
+def send_telegram(message):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("Telegram Credentials Missing!")
+        return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": msg}
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
     try:
-        requests.post(url, json=payload)
+        requests.post(url, json=payload, timeout=10)
     except Exception as e:
-        print("Telegram Error:", e)
+        print(f"Telegram Error: {e}")
 
 def get_market_data(ticker):
     try:
-        data = yf.download(tickers=ticker, period="1d", interval="5m", progress=False)
-        if data.empty:
-            return []
-        candles = []
-        for index, row in data.tail(20).iterrows():
-            candles.append({
-                "open": float(row['Open']),
-                "high": float(row['High']),
-                "low": float(row['Low']),
-                "close": float(row['Close'])
-            })
-        return candles
+        df = yf.download(ticker, period="2d", interval="5m")
+        if df.empty or len(df) < 10:
+            return None
+        recent_candles = df.tail(15).to_string()
+        return recent_candles
     except Exception as e:
-        print(f"Error fetching data for {ticker}: {e}")
-        return []
+        print(f"Fetch Error for {ticker}: {e}")
+        return None
 
 def analyze_smc(name, candles):
     prompt = f"""
-    You are an expert SMC trader. Analyze the following last 5-minute candles for {name}:
+    You are an advanced Smart Money Concepts (SMC) AI Trading Engine monitoring 5-minute (5m) charts for {name}.
+    Analyze the following 5m OHLCV candle data carefully:
     {candles}
 
-    Check for:
-    1. Liquidity Sweep (PDH/PDL or Equal Highs/Lows)
-    2. CHoCH
-    3. BOS
-    4. True Breakout
+    Your strict strategy rules to detect (both Uptrend -> Downtrend AND Downtrend -> Uptrend):
 
-    If a strong setup is found right now, respond in this format:
-    SIGNAL: [BUY/SELL]
-    STRATEGY: [Strategy Name]
-    REASON: [Short 1-sentence reason]
+    STRATEGY 1: LIQUIDITY SWEEP (PDH/PDL Sweep and Re-entry)
+    - Bullish: Price sweeps Previous Day Low (PDL) or previous swing low with a wick/candle, but body closes INSIDE the previous range/structure. If price initially closed outside but the next candle returns inside the range, trigger alert.
+    - Bearish: Price sweeps Previous Day High (PDH) or previous swing high with a wick/candle, but body closes INSIDE the range.
 
-    If NO clear setup, reply ONLY: NO_SIGNAL
+    STRATEGY 2: CHoCH (Change of Character)
+    - Bullish: After sweeping liquidity in a downtrend and returning inside range, price breaks the previous Lower High (L-H) with a strong candle BODY CLOSING above it.
+    - Bearish: After sweeping liquidity in an uptrend, price breaks the previous Higher Low (H-L) with a strong candle BODY CLOSING below it.
+
+    STRATEGY 3: BOS (Break of Structure - Post CHoCH Confirmation)
+    - Bullish: After CHoCH occurs, market forms new Higher-High (H-H) and Higher-Low (H-L). When a new candle breaks the previous H-H with a BODY CLOSING above it, trigger BOS alert.
+    - Bearish: After CHoCH, market forms Lower-Low (L-L) and Lower-High (L-H). When a new candle breaks the previous L-L with a BODY CLOSING below it, trigger BOS alert.
+
+    STRATEGY 4: TRUE BREAKOUT & CONTINUATION
+    - Bullish: Price breaks out of PDH with minimum volume expansion and stays above range without returning inside. If market forms new L-H/H-L structure and breaks previous H-H (BOS), trigger alert.
+    - Bearish: Price breaks out of PDL with minimum volume expansion and stays below range. If market forms L-H structure and breaks previous L-L (BOS), trigger alert.
+
+    STRATEGY 5: ALL CONTINUOUS BOS ALERTS (5m Timeframe)
+    - Send an alert for EVERY SINGLE valid BOS occurrence on the 5m chart for all tracked assets (Gold, BTC, ETH, Nifty 50, Sensex) whenever a candle body breaks previous swing high/low structure.
+
+    STRATEGY 6: EQUAL HIGH / EQUAL LOW LIQUIDITY SWEEP
+    - Trigger alert when Equal Highs (EQH) or Equal Lows (EQL) liquidity pool is swept and rejected back.
+
+    IF ANY of the above conditions are met on the latest 5m candle, reply STRICTLY in this English notification format:
+
+    🚨 *[SMC 5M ALERT - {name}]*
+    • *SIGNAL:* [BUY / SELL]
+    • *STRATEGY:* [Exact Strategy triggered: Liquidity Sweep / CHoCH / BOS / Breakout / EQH-EQL Sweep]
+    • *TIMEFRAME:* 5M
+    • *REASON:* [Short English explanation of candle body closing and structure break]
+
+    IF NO CLEAR SETUP MATCHES, reply strictly with: NO_SIGNAL
     """
-    try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-        )
-        return response.text.strip()
-    except Exception as e:
-        print(f"AI Error on {name}:", e)
-        return "NO_SIGNAL"
 
-def start_bot_loop():
-    print("🚀 DIPTANGAN Multi-Asset SMC Terminal Engine Started...")
-    send_telegram("🚀 Multi-Asset SMC AI Bot Live! Tracking Gold, Silver, BTC, ETH, Nifty & Sensex.")
-    
-    processed_candles = {}
-    
+    try:
+        response = model.generate_content(prompt)
+        text = response.text.strip()
+        if "NO_SIGNAL" not in text:
+            return text
+        return None
+    except Exception as e:
+        print(f"Gemini Analysis Error: {e}")
+        return None
+
+def main():
+    send_telegram("🚀 *DIPTANGAN SMC ENGINE v3.0 ACTIVE*\nMonitoring 5m Charts for Sweep, CHoCH, BOS & Breakouts...")
     while True:
         for name, ticker in ASSETS.items():
-            try:
-                candles = get_market_data(ticker)
-                if not candles:
-                    continue
-                    
-                last_close = candles[-1]['close']
-                
-                if processed_candles.get(name) != last_close:
-                    ai_result = analyze_smc(name, candles)
-                    if "NO_SIGNAL" not in ai_result:
-                        msg = f"🔥 [SMC ALERT - {name} 5M]\n\n{ai_result}"
-                        send_telegram(msg)
-                        print(f"Alert Sent for {name}:", ai_result)
-                    processed_candles[name] = last_close
-                    
-            except Exception as e:
-                print(f"Error checking {name}:", e)
-                
-        time.sleep(60)
-
-# Serve Web Dashboard
-@app.route('/')
-def home():
-    return render_template('index.html')
+            candles = get_market_data(ticker)
+            if candles is not None:
+                alert = analyze_smc(name, candles)
+                if alert:
+                    send_telegram(alert)
+            time.sleep(3)
+        time.sleep(300) # Scan every 5 mins
 
 if __name__ == "__main__":
-    # Run Bot Scanner in Background Thread
-    bot_thread = threading.Thread(target=start_bot_loop)
-    bot_thread.daemon = True
-    bot_thread.start()
-    
-    # Run Flask Web Terminal
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
+    main()
         
