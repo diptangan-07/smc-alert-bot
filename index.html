@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diptangan SMC Trading Terminal</title>
+    <style>
+        body {
+            background-color: #131722;
+            color: #d1d4dc;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 15px;
+        }
+        h1 {
+            text-align: center;
+            color: #2962ff;
+        }
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .chart-box {
+            background: #1e222d;
+            border-radius: 8px;
+            padding: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .chart-box h3 {
+            margin-top: 0;
+            color: #00bcd4;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>🚀 DIPTANGAN SMC TRADING TERMINAL</h1>
+
+    <div class="grid-container">
+        <div class="chart-box">
+            <h3>GOLD (XAUUSD)</h3>
+            <iframe src="https://s.tradingview.com/widgetembed/?symbol=OANDA%3AXAUUSD&interval=5&theme=dark" width="100%" height="300" frameborder="0"></iframe>
+        </div>
+
+        <div class="chart-box">
+            <h3>BITCOIN (BTCUSDT)</h3>
+            <iframe src="https://s.tradingview.com/widgetembed/?symbol=BINANCE%3ABTCUSDT&interval=5&theme=dark" width="100%" height="300" frameborder="0"></iframe>
+        </div>
+
+        <div class="chart-box">
+            <h3>NIFTY 50</h3>
+            <iframe src="https://s.tradingview.com/widgetembed/?symbol=NSE%3ANIFTY&interval=5&theme=dark" width="100%" height="300" frameborder="0"></iframe>
+        </div>
+
+        <div class="chart-box">
+            <h3>ETHEREUM (ETHUSDT)</h3>
+            <iframe src="https://s.tradingview.com/widgetembed/?symbol=BINANCE%3AETHUSDT&interval=5&theme=dark" width="100%" height="300" frameborder="0"></iframe>
+        </div>
+    </div>
+
+</body>
+  </html>
+  
