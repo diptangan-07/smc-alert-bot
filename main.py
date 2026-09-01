@@ -1,7 +1,13 @@
+import os
 import time
+import threading
 import requests
 import yfinance as yf
+from flask import Flask, render_template
 from google import genai
+
+# Flask Server Init
+app = Flask(__name__, template_folder='.')
 
 # Configs
 GEMINI_API_KEY = "AQ.Ab8RN6L3eQ2UYi6doKNGt84aoxqVfZaVsNI7LD_KwNyKz7ZX6A"
@@ -11,7 +17,7 @@ TELEGRAM_CHAT_ID = "7476331970"
 # Gemini Client Init
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# Assets Mapping (Gold, Silver, Crypto, Nifty, Sensex)
+# Assets Mapping
 ASSETS = {
     "GOLD": "GC=F",
     "SILVER": "SI=F",
@@ -75,31 +81,46 @@ def analyze_smc(name, candles):
         print(f"AI Error on {name}:", e)
         return "NO_SIGNAL"
 
-print("🚀 DIPTANGAN Multi-Asset SMC Terminal Engine Started...")
-send_telegram("🚀 Multi-Asset SMC AI Bot Live! Tracking Gold, Silver, BTC, ETH, Nifty & Sensex.")
-
-processed_candles = {}
-
-while True:
-    for name, ticker in ASSETS.items():
-        try:
-            candles = get_market_data(ticker)
-            if not candles:
-                continue
-                
-            last_close = candles[-1]['close']
-            
-            # Prevent double alerts on same candle close
-            if processed_candles.get(name) != last_close:
-                ai_result = analyze_smc(name, candles)
-                if "NO_SIGNAL" not in ai_result:
-                    msg = f"🔥 [SMC ALERT - {name} 5M]\n\n{ai_result}"
-                    send_telegram(msg)
-                    print(f"Alert Sent for {name}:", ai_result)
-                processed_candles[name] = last_close
-                
-        except Exception as e:
-            print(f"Error checking {name}:", e)
-            
-    time.sleep(60) # Scan every 1 minute
+def start_bot_loop():
+    print("🚀 DIPTANGAN Multi-Asset SMC Terminal Engine Started...")
+    send_telegram("🚀 Multi-Asset SMC AI Bot Live! Tracking Gold, Silver, BTC, ETH, Nifty & Sensex.")
     
+    processed_candles = {}
+    
+    while True:
+        for name, ticker in ASSETS.items():
+            try:
+                candles = get_market_data(ticker)
+                if not candles:
+                    continue
+                    
+                last_close = candles[-1]['close']
+                
+                if processed_candles.get(name) != last_close:
+                    ai_result = analyze_smc(name, candles)
+                    if "NO_SIGNAL" not in ai_result:
+                        msg = f"🔥 [SMC ALERT - {name} 5M]\n\n{ai_result}"
+                        send_telegram(msg)
+                        print(f"Alert Sent for {name}:", ai_result)
+                    processed_candles[name] = last_close
+                    
+            except Exception as e:
+                print(f"Error checking {name}:", e)
+                
+        time.sleep(60)
+
+# Serve Web Dashboard
+@app.route('/')
+def home():
+    return render_template('index.html')
+
+if __name__ == "__main__":
+    # Run Bot Scanner in Background Thread
+    bot_thread = threading.Thread(target=start_bot_loop)
+    bot_thread.daemon = True
+    bot_thread.start()
+    
+    # Run Flask Web Terminal
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
+        
