@@ -1,15 +1,23 @@
 import os
 import time
+import threading
 import requests
 import yfinance as yf
 import google.generativeai as genai
+from flask import Flask
 
-# Configure Gemini AI
+# Flask Server for Render Port Binding
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "ICT-RAJ SMC ENGINE IS RUNNING LIVE 24/7!"
+
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-genai.configure(api_key=GEMINI_API_KEY)
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-# Telegram Configs
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
@@ -23,7 +31,6 @@ ASSETS = {
 
 def send_telegram(message):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Telegram Credentials Missing!")
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
@@ -32,54 +39,69 @@ def send_telegram(message):
     except Exception as e:
         print(f"Telegram Error: {e}")
 
-def get_market_data(ticker):
+def get_market_data(ticker, timeframe="5m", period="2d"):
     try:
-        df = yf.download(ticker, period="2d", interval="5m")
-        if df.empty or len(df) < 10:
+        df = yf.download(ticker, period=period, interval=timeframe)
+        if df.empty or len(df) < 5:
             return None
-        recent_candles = df.tail(15).to_string()
-        return recent_candles
+        return df.tail(10).to_string()
     except Exception as e:
-        print(f"Fetch Error for {ticker}: {e}")
         return None
 
-def analyze_smc(name, candles):
+def analyze_smc(name, data_5m, data_1h, data_4h):
     prompt = f"""
-    You are an advanced Smart Money Concepts (SMC) AI Trading Engine monitoring 5-minute (5m) charts for {name}.
-    Analyze the following 5m OHLCV candle data carefully:
-    {candles}
+    You are an expert Smart Money Concepts (SMC) AI Trading Engine analyzing market structure for {name}.
+    Both Bullish (Downtrend to Uptrend) and Bearish (Uptrend to Downtrend) scenarios apply to all rules.
 
-    Your strict strategy rules to detect (both Uptrend -> Downtrend AND Downtrend -> Uptrend):
+    [5M CANDLES]:
+    {data_5m}
 
-    STRATEGY 1: LIQUIDITY SWEEP (PDH/PDL Sweep and Re-entry)
-    - Bullish: Price sweeps Previous Day Low (PDL) or previous swing low with a wick/candle, but body closes INSIDE the previous range/structure. If price initially closed outside but the next candle returns inside the range, trigger alert.
-    - Bearish: Price sweeps Previous Day High (PDH) or previous swing high with a wick/candle, but body closes INSIDE the range.
+    [1H CANDLES]:
+    {data_1h}
 
-    STRATEGY 2: CHoCH (Change of Character)
-    - Bullish: After sweeping liquidity in a downtrend and returning inside range, price breaks the previous Lower High (L-H) with a strong candle BODY CLOSING above it.
-    - Bearish: After sweeping liquidity in an uptrend, price breaks the previous Higher Low (H-L) with a strong candle BODY CLOSING below it.
+    [4H CANDLES]:
+    {data_4h}
 
-    STRATEGY 3: BOS (Break of Structure - Post CHoCH Confirmation)
-    - Bullish: After CHoCH occurs, market forms new Higher-High (H-H) and Higher-Low (H-L). When a new candle breaks the previous H-H with a BODY CLOSING above it, trigger BOS alert.
-    - Bearish: After CHoCH, market forms Lower-Low (L-L) and Lower-High (L-H). When a new candle breaks the previous L-L with a BODY CLOSING below it, trigger BOS alert.
+    Strictly check for the following 7 Strategies:
 
-    STRATEGY 4: TRUE BREAKOUT & CONTINUATION
-    - Bullish: Price breaks out of PDH with minimum volume expansion and stays above range without returning inside. If market forms new L-H/H-L structure and breaks previous H-H (BOS), trigger alert.
-    - Bearish: Price breaks out of PDL with minimum volume expansion and stays below range. If market forms L-H structure and breaks previous L-L (BOS), trigger alert.
+    STRATEGY 1: PDH/PDL LIQUIDITY SWEEP & RE-ENTRY (5M)
+    - Wick sweeps Previous Day High (PDH) or Previous Day Low (PDL) and body closes INSIDE the range.
+    - OR price closes outside PDH/PDL initially, but a subsequent candle returns INSIDE the range. Send alert ONLY when price is safely inside the range.
 
-    STRATEGY 5: ALL CONTINUOUS BOS ALERTS (5m Timeframe)
-    - Send an alert for EVERY SINGLE valid BOS occurrence on the 5m chart for all tracked assets (Gold, BTC, ETH, Nifty 50, Sensex) whenever a candle body breaks previous swing high/low structure.
+    STRATEGY 2: CHoCH - CHANGE OF CHARACTER (5M)
+    - Triggered AFTER Strategy 1 (Sweep + Return inside range).
+    - Bullish: Candle BODY CLOSES above the previous Lower High (L-H).
+    - Bearish: Candle BODY CLOSES below the previous Higher Low (H-L).
 
-    STRATEGY 6: EQUAL HIGH / EQUAL LOW LIQUIDITY SWEEP
-    - Trigger alert when Equal Highs (EQH) or Equal Lows (EQL) liquidity pool is swept and rejected back.
+    STRATEGY 3: POST-CHoCH BOS (5M)
+    - Triggered AFTER CHoCH is formed.
+    - Bullish: Price forms new H-H/H-L, then candle BODY CLOSES above the previous Higher High (H-H).
+    - Bearish: Price forms new L-L/L-H, then candle BODY CLOSES below the previous Lower Low (L-L).
 
-    IF ANY of the above conditions are met on the latest 5m candle, reply STRICTLY in this English notification format:
+    STRATEGY 4: BREAKOUT WITH MINIMUM VOLUME & CONTINUATION BOS (5M)
+    - Price breaks out of PDH/PDL with minimum volume and DOES NOT return inside range.
+    - Market continues structure (forms L-H/H-L and breaks previous L-L/H-H via BOS). Trigger breakout & continuation alert.
 
-    🚨 *[SMC 5M ALERT - {name}]*
+    STRATEGY 5: EQUAL HIGH (EQH) & EQUAL LOW (EQL) SWEEP (5M)
+    - Trigger alert when Equal Highs or Equal Lows liquidity pool is swept and rejected back.
+
+    STRATEGY 6: BREAKOUT FAILURE / FAILED CONTINUATION RE-ENTRY (5M)
+    - Market strongly breaks PDH/PDL with high volume and starts forming BOS outside.
+    - BUT THEN IT FAILS and price re-enters back INSIDE the PDH/PDL range. Send immediate failure alert upon re-entry.
+
+    STRATEGY 7: CANDLE RANGE THEORY (CRT - 1H, 4H & 5M SWEEP)
+    - 1H CRT: 1-hour candle sweeps previous 1h high/low (or closes outside) and returns INSIDE the previous 1h range.
+    - 4H CRT: 4-hour candle sweeps previous 4h high/low (or closes outside) and returns INSIDE the previous 4h range.
+    - (Note: If price stays outside and continues trend without returning, DO NOT alert).
+    - SPECIAL 5M SWEEP OF HTF: If ANY current 5m candle sweeps the high or low liquidity of the previous 1H or 4H candle, trigger an instant alert for 1H/4H Liquidity Sweep on 5M.
+
+    If any strategy triggers on the latest candles, reply strictly in this English format:
+
+    🚨 *[SMC ALERT - {name}]*
+    • *STRATEGY:* [Exact Strategy Name e.g. Strategy 1 / Strategy 2 CHoCH / CRT 1H]
     • *SIGNAL:* [BUY / SELL]
-    • *STRATEGY:* [Exact Strategy triggered: Liquidity Sweep / CHoCH / BOS / Breakout / EQH-EQL Sweep]
-    • *TIMEFRAME:* 5M
-    • *REASON:* [Short English explanation of candle body closing and structure break]
+    • *TIMEFRAME:* [5M / 1H / 4H]
+    • *DETAILS:* [Short 1-sentence English explanation of candle body closing and structure]
 
     IF NO CLEAR SETUP MATCHES, reply strictly with: NO_SIGNAL
     """
@@ -91,21 +113,24 @@ def analyze_smc(name, candles):
             return text
         return None
     except Exception as e:
-        print(f"Gemini Analysis Error: {e}")
         return None
 
-def main():
-    send_telegram("🚀 *DIPTANGAN SMC ENGINE v3.0 ACTIVE*\nMonitoring 5m Charts for Sweep, CHoCH, BOS & Breakouts...")
+def bot_loop():
+    send_telegram("🚀 *DIPTANGAN SMC ENGINE v3.0 LIVE*\nAll 7 SMC Strategies Loaded & Actively Monitoring...")
     while True:
         for name, ticker in ASSETS.items():
-            candles = get_market_data(ticker)
-            if candles is not None:
-                alert = analyze_smc(name, candles)
+            d5m = get_market_data(ticker, "5m", "2d")
+            d1h = get_market_data(ticker, "1h", "5d")
+            d4h = get_market_data(ticker, "4h", "10d")
+            
+            if d5m and d1h and d4h:
+                alert = analyze_smc(name, d5m, d1h, d4h)
                 if alert:
                     send_telegram(alert)
-            time.sleep(3)
-        time.sleep(300) # Scan every 5 mins
+            time.sleep(2)
+        time.sleep(300)
 
 if __name__ == "__main__":
-    main()
-        
+    threading.Thread(target=bot_loop, daemon=True).start()
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
