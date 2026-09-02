@@ -6,7 +6,7 @@ from flask import Flask
 
 app = Flask(__name__)
 
-# TELEGRAM CONFIG (UPDATED WITH YOUR CORRECT CHAT ID & BOT TOKEN)
+# ENV OR DIRECT FALLBACK
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "7963364955:AAEz0z--r6Y0L2kI7f4yT53S51pGfQoP6uM")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "8893050202")
 
@@ -15,20 +15,21 @@ def send_telegram(message):
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}
         res = requests.post(url, json=payload, timeout=10)
-        print(f"Telegram Status: {res.status_code}, Response: {res.text}")
+        print(f"Telegram API Response: {res.status_code} -> {res.text}")
     except Exception as e:
-        print(f"Telegram Send Error: {e}")
+        print(f"Telegram Exception: {e}")
 
 def get_clean_data(symbol, period, interval):
     try:
-        df = yf.download(symbol, period=period, interval=interval, progress=False)
+        ticker = yf.Ticker(symbol)
+        df = ticker.history(period=period, interval=interval)
         if df.empty:
             return pd.DataFrame()
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
         return df
     except Exception as e:
-        print(f"Fetch Error for {symbol}: {e}")
+        print(f"Fetch Exception ({symbol}): {e}")
         return pd.DataFrame()
 
 def analyze_symbol(symbol):
@@ -37,6 +38,7 @@ def analyze_symbol(symbol):
     df_1d = get_clean_data(symbol, period="5d", interval="1d")
 
     if df_5m.empty or df_1d.empty or len(df_5m) < 15:
+        print(f"Data empty for {symbol}")
         return
 
     prev = df_5m.iloc[-2]
@@ -115,10 +117,11 @@ def home():
 
 @app.route('/run')
 def run():
-    analyze_symbol("GC=F")       # Gold Futures
-    analyze_symbol("BTC-USD")     # Bitcoin
+    send_telegram("🔄 <b>Manual Trigger Fired: Scanning Market Now...</b>")
+    analyze_symbol("GC=F")
+    analyze_symbol("BTC-USD")
     return "Scan Complete", 200
 
 if __name__ == "__main__":
-    send_telegram("✅ <b>Diptangan SMC AI Bot Connected to Telegram Successfully!</b>")
+    send_telegram("✅ <b>Diptangan SMC Bot Engine Online & Ready!</b>")
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
