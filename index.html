@@ -4,99 +4,102 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DIPTANGAN AI - SMC & Crypto Intelligence Hub</title>
-    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Firebase SDKs -->
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 </head>
-<body class="bg-gray-900 text-white font-sans antialiased">
+<body class="bg-gray-950 text-white font-sans antialiased">
 
     <!-- Navbar -->
-    <nav class="border-b border-gray-800 bg-gray-950 px-6 py-4 flex justify-between items-center">
-        <div class="flex items-center gap-2">
-            <span class="text-2xl">⚡</span>
-            <h1 class="text-xl font-bold bg-gradient-to-r from-blue-400 to-emerald-400 bg-clip-text text-transparent">
-                DIPTANGAN SMC AI HUB
-            </h1>
+    <nav class="border-b border-gray-800 bg-gray-900 px-6 py-4 flex flex-wrap justify-between items-center gap-4">
+        <div class="flex items-center gap-3">
+            <span class="text-3xl">⚡</span>
+            <div>
+                <h1 class="text-xl font-bold bg-gradient-to-r from-blue-400 via-emerald-400 to-purple-500 bg-clip-text text-transparent">
+                    DIPTANGAN SMC AI HUB
+                </h1>
+                <p class="text-xs text-gray-400">Pro SMC Signals & Market Intelligence</p>
+            </div>
         </div>
+
         <div id="auth-container">
-            <button id="login-btn" onclick="loginWithGoogle()" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-medium transition flex items-center gap-2">
-                <svg class="w-5 h-5" viewBox="0 0 24 24"><path fill="currentColor" d="M21.35 11.1H12v3.8h5.35c-.3 1.5-1.5 3.7-5.35 3.7c-3.2 0-5.8-2.7-5.8-6s2.6-6 5.8-6c1.8 0 3 .8 3.7 1.4l2.5-2.5C16.8 3.5 14.6 2.6 12 2.6C6.8 2.6 2.6 6.8 2.6 12s4.2 9.4 9.4 9.4c5.4 0 9-3.8 9-9.2c0-.6-.1-1.1-.1-1.1z"/></svg>
+            <button id="login-btn" onclick="loginWithGoogle()" class="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white px-5 py-2.5 rounded-xl font-medium shadow-lg transition flex items-center gap-2 text-sm">
+                <svg class="w-4 h-4" viewBox="0 0 24 24"><path fill="currentColor" d="M21.35 11.1H12v3.8h5.35c-.3 1.5-1.5 3.7-5.35 3.7c-3.2 0-5.8-2.7-5.8-6s2.6-6 5.8-6c1.8 0 3 .8 3.7 1.4l2.5-2.5C16.8 3.5 14.6 2.6 12 2.6C6.8 2.6 2.6 6.8 2.6 12s4.2 9.4 9.4 9.4c5.4 0 9-3.8 9-9.2c0-.6-.1-1.1-.1-1.1z"/></svg>
                 Google Login
             </button>
             <div id="user-profile" class="hidden flex items-center gap-3">
-                <img id="user-img" class="w-9 h-9 rounded-full border border-gray-700" src="" alt="User Avatar">
-                <span id="user-name" class="font-medium text-sm text-gray-300"></span>
-                <button onclick="logout()" class="text-xs bg-red-900/40 hover:bg-red-800 text-red-300 px-3 py-1.5 rounded border border-red-800">Logout</button>
+                <img id="user-img" class="w-9 h-9 rounded-full border border-emerald-500" src="" alt="User Avatar">
+                <span id="user-name" class="font-medium text-sm text-gray-200"></span>
+                <button onclick="logout()" class="text-xs bg-red-900/30 hover:bg-red-800/50 text-red-400 px-3 py-1.5 rounded-lg border border-red-800 transition">Logout</button>
             </div>
         </div>
     </nav>
 
     <!-- Main Content Grid -->
-    <div class="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-7xl mx-auto">
+    <div class="p-4 md:p-6 grid grid-cols-1 lg:grid-cols-4 gap-6 max-w-[1600px] mx-auto">
 
         <!-- Left Column: SMC Live Signal Feed -->
-        <div class="bg-gray-950 p-5 rounded-xl border border-gray-800 flex flex-col h-[650px]">
+        <div class="bg-gray-900/80 p-5 rounded-2xl border border-gray-800/80 flex flex-col h-[700px] backdrop-blur">
             <div class="flex items-center justify-between mb-4 border-b border-gray-800 pb-3">
-                <h2 class="font-semibold text-lg flex items-center gap-2 text-emerald-400">
+                <h2 class="font-semibold text-base flex items-center gap-2 text-emerald-400">
                     <span class="relative flex h-3 w-3">
                       <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                       <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
                     </span>
                     Live SMC Signals
                 </h2>
-                <span class="text-xs text-gray-500">Auto Sync</span>
+                <span class="text-xs bg-emerald-950 text-emerald-400 px-2 py-0.5 rounded border border-emerald-800">Auto Sync</span>
             </div>
             
-            <div id="signal-feed" class="flex-1 overflow-y-auto space-y-3 pr-1">
-                <div class="bg-gray-900 p-4 rounded-lg border border-gray-800 animate-pulse">
-                    <p class="text-gray-500 text-sm">Connecting to Telegram SMC Engine...</p>
+            <div id="signal-feed" class="flex-1 overflow-y-auto space-y-3 pr-1 text-sm">
+                <div class="bg-gray-950/60 p-4 rounded-xl border border-gray-800">
+                    <p class="text-gray-400 text-xs">বট বর্তমানে মার্কেট স্ক্যান করছে। নতুন SMC সেটআপ তৈরি হলেই এখানে সিগন্যাল কার্ড চলে আসবে...</p>
                 </div>
             </div>
         </div>
 
-        <!-- Middle Column: TradingView Chart & AI Sentiment -->
-        <div class="space-y-6">
-            <!-- AI Sentiment Widget -->
-            <div class="bg-gray-950 p-5 rounded-xl border border-gray-800">
-                <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-2">AI Market Bias</h3>
-                <div class="flex items-center justify-between">
-                    <span id="market-bias" class="text-2xl font-bold text-emerald-400">BULLISH SCANNER</span>
-                    <span class="text-xs bg-emerald-950 text-emerald-300 px-2.5 py-1 rounded border border-emerald-800">Gemini 1.5 Flash</span>
+        <!-- Center Column: TradingView Chart & Controls (Spans 2 columns) -->
+        <div class="lg:col-span-2 space-y-4">
+            <!-- Asset Selector & Controls -->
+            <div class="bg-gray-900/80 p-4 rounded-2xl border border-gray-800 flex flex-wrap items-center justify-between gap-3">
+                <div class="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0">
+                    <button onclick="changeSymbol('OANDA:XAUUSD')" class="bg-gray-800 hover:bg-emerald-600 px-3 py-1.5 rounded-lg text-xs font-semibold transition border border-gray-700">🥇 GOLD</button>
+                    <button onclick="changeSymbol('BINANCE:BTCUSDT')" class="bg-gray-800 hover:bg-emerald-600 px-3 py-1.5 rounded-lg text-xs font-semibold transition border border-gray-700">🪙 BTC</button>
+                    <button onclick="changeSymbol('BINANCE:ETHUSDT')" class="bg-gray-800 hover:bg-emerald-600 px-3 py-1.5 rounded-lg text-xs font-semibold transition border border-gray-700">💎 ETH</button>
+                    <button onclick="changeSymbol('NSE:NIFTY')" class="bg-gray-800 hover:bg-emerald-600 px-3 py-1.5 rounded-lg text-xs font-semibold transition border border-gray-700">📈 NIFTY 50</button>
+                    <button onclick="changeSymbol('BSE:SENSEX')" class="bg-gray-800 hover:bg-emerald-600 px-3 py-1.5 rounded-lg text-xs font-semibold transition border border-gray-700">📊 SENSEX</button>
                 </div>
+                <button onclick="toggleFullScreen()" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1">
+                    ⛶ Full Screen Chart
+                </button>
             </div>
 
-            <!-- TradingView Widget -->
-            <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 h-[500px]">
-                <div class="tradingview-widget-container h-full">
-                    <iframe src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_1&symbol=BTCUSD&interval=5&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=F1F3F6&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC" class="w-full h-full rounded"></iframe>
-                </div>
+            <!-- TradingView Chart Container -->
+            <div id="chart-card" class="bg-gray-900/80 p-2 rounded-2xl border border-gray-800 h-[620px] relative">
+                <div id="tradingview_widget" class="w-full h-full rounded-xl overflow-hidden"></div>
             </div>
         </div>
 
-        <!-- Right Column: Trump & Global Crypto News Feed -->
-        <div class="bg-gray-950 p-5 rounded-xl border border-gray-800 flex flex-col h-[650px]">
+        <!-- Right Column: Live Trump & Crypto News -->
+        <div class="bg-gray-900/80 p-5 rounded-2xl border border-gray-800 flex flex-col h-[700px] backdrop-blur">
             <div class="flex items-center justify-between mb-4 border-b border-gray-800 pb-3">
-                <h2 class="font-semibold text-lg text-blue-400 flex items-center gap-2">
-                    🌐 Global & Trump News AI
+                <h2 class="font-semibold text-base text-blue-400 flex items-center gap-2">
+                    🌐 Global & Trump News
                 </h2>
+                <button onclick="fetchNews()" class="text-xs text-gray-400 hover:text-white">🔄 Refresh</button>
             </div>
             
-            <div id="news-feed" class="flex-1 overflow-y-auto space-y-3 pr-1">
-                <div class="bg-gray-900 p-4 rounded-lg border border-gray-800">
-                    <span class="text-xs bg-blue-900/50 text-blue-300 px-2 py-0.5 rounded">Market Update</span>
-                    <h4 class="font-medium text-sm text-gray-200 mt-2">Crypto Market Awaits Major Volatility Test</h4>
-                    <p class="text-xs text-gray-400 mt-1">AI Scan: High probability of liquidity sweep on major pairs during session open.</p>
-                </div>
+            <div id="news-feed" class="flex-1 overflow-y-auto space-y-3 pr-1 text-xs">
+                <div class="text-gray-500 animate-pulse">Loading live news feed...</div>
             </div>
         </div>
     </div>
 
-    <!-- Firebase Script Integration -->
+    <!-- TradingView & Logic Scripts -->
+    <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
     <script>
-        // Firebase Config Setup
+        // Firebase Config
         const firebaseConfig = {
           apiKey: "AIzaSyBadaNtrOfcRaSskaL0kdYoOJAVhsWuY2c",
           authDomain: "trade-with-ict-diptangan.firebaseapp.com",
@@ -111,17 +114,47 @@
         const auth = firebase.auth();
         const db = firebase.firestore();
 
-        // Google Login Function
+        // Load TradingView Chart
+        let currentSymbol = 'OANDA:XAUUSD';
+        function loadChart(symbol) {
+            new TradingView.widget({
+                "autosize": true,
+                "symbol": symbol,
+                "interval": "5",
+                "timezone": "Asia/Kolkata",
+                "theme": "dark",
+                "style": "1",
+                "locale": "en",
+                "toolbar_bg": "#f1f3f6",
+                "enable_publishing": false,
+                "allow_symbol_change": true,
+                "container_id": "tradingview_widget"
+            });
+        }
+        loadChart(currentSymbol);
+
+        function changeSymbol(symbol) {
+            currentSymbol = symbol;
+            loadChart(symbol);
+        }
+
+        function toggleFullScreen() {
+            const chartDiv = document.getElementById('chart-card');
+            if (!document.fullscreenElement) {
+                chartDiv.requestFullscreen().catch(err => alert(err.message));
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        // Auth Functions
         function loginWithGoogle() {
             const provider = new firebase.GoogleAuthProvider();
-            auth.signInWithPopup(provider).catch(error => console.error(error));
+            auth.signInWithPopup(provider).catch(error => alert(error.message));
         }
 
-        function logout() {
-            auth.signOut();
-        }
+        function logout() { auth.signOut(); }
 
-        // Auth State Observer
         auth.onAuthStateChanged(user => {
             if (user) {
                 document.getElementById('login-btn').classList.add('hidden');
@@ -133,7 +166,28 @@
                 document.getElementById('user-profile').classList.add('hidden');
             }
         });
+
+        // Real Live Crypto & Trump News Fetcher
+        async function fetchNews() {
+            const newsFeed = document.getElementById('news-feed');
+            try {
+                const res = await fetch('https://min-api.cryptocompare.com/data/v2/news/?lang=EN');
+                const data = await res.json();
+                const articles = data.Data.slice(0, 8);
+                
+                newsFeed.innerHTML = articles.map(item => `
+                    <div class="bg-gray-950/70 p-3 rounded-xl border border-gray-800/80 hover:border-gray-700 transition">
+                        <span class="text-[10px] text-blue-400 font-medium">${new Date(item.published_on * 1000).toLocaleTimeString()}</span>
+                        <h4 class="font-medium text-gray-200 mt-1 leading-snug">${item.title}</h4>
+                        <a href="${item.url}" target="_blank" class="text-[10px] text-emerald-400 mt-2 block hover:underline">Read full news →</a>
+                    </div>
+                `).join('');
+            } catch (err) {
+                newsFeed.innerHTML = '<p class="text-red-400">Failed to fetch news.</p>';
+            }
+        }
+        fetchNews();
     </script>
 </body>
-    </html>
-                
+                </html>
+                    
