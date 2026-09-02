@@ -1,2 +1,4 @@
-tvdatafeed
-git+https://github.com/MathieuNls/websocket-client.git
+Flask==3.0.3
+requests==2.32.3
+pandas==2.2.2
+yfinance==0.2.40
