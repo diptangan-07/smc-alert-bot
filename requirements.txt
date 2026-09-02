@@ -1,5 +1,5 @@
-flask
-requests
-google-genai
-pandas
 yfinance
+google-generativeai
+requests
+Flask
+gunicorn
