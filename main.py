@@ -2,12 +2,12 @@ import os
 import time
 import requests
 import pandas as pd
-import yfinance as yf
-from flask import Flask, render_template
+from tvdatafeed import TvDatafeed, Interval
+from flask import Flask
 
 app = Flask(__name__)
 
-# TELEGRAM BOT CONFIGURATION
+# TELEGRAM CONFIG
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_TELEGRAM_CHAT_ID")
 
@@ -17,106 +17,102 @@ def send_telegram(message):
         payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}
         requests.post(url, json=payload, timeout=10)
     except Exception as e:
-        print(f"Error sending Telegram message: {e}")
+        print(f"Telegram Send Error: {e}")
 
-def fetch_data(symbol, period="5d", interval="5m"):
+# TradingView Live Feed Engine (No Lag)
+tv = TvDatafeed()
+
+def analyze_smc_live(symbol="XAUUSD", exchange="OANDA"):
     try:
-        df = yf.download(symbol, period=period, interval=interval, progress=False)
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        return df
+        # Fetch 5m, 1h, and Daily candles directly from TradingView
+        df_5m = tv.get_hist(symbol=symbol, exchange=exchange, interval=Interval.in_5_minute, n_bars=100)
+        df_1h = tv.get_hist(symbol=symbol, exchange=exchange, interval=Interval.in_1_hour, n_bars=50)
+        df_1d = tv.get_hist(symbol=symbol, exchange=exchange, interval=Interval.in_daily, n_bars=5)
+
+        if df_5m is None or df_5m.empty:
+            return
+
+        # PDH & PDL Calculation
+        pdh = df_1d['high'].iloc[-2]
+        pdl = df_1d['low'].iloc[-2]
+
+        curr = df_5m.iloc[-1]   # Running Candle
+        prev = df_5m.iloc[-2]   # Just Closed Candle
+        avg_vol = df_5m['volume'].rolling(20).mean().iloc[-1]
+
+        # ------------------- 1ST STRATEGY: LIQUIDITY SWEEP -------------------
+        # Buyside Liquidity Sweep (PDH Sweep -> Close Inside -> SELL Setup)
+        if prev['high'] > pdh and prev['close'] < pdh:
+            send_telegram(f"🚨 <b>[SMC STRATEGY 1 - PDH SWEEP]</b>\nSymbol: {symbol}\nBuyside Liquidity Swept! Wick hunt above PDH ({pdh}) but body closed inside.\n<b>Bias: BEARISH / SELL</b>")
+        
+        # Sellside Liquidity Sweep (PDL Sweep -> Close Inside -> BUY Setup)
+        if prev['low'] < pdl and prev['close'] > pdl:
+            send_telegram(f"🚨 <b>[SMC STRATEGY 1 - PDL SWEEP]</b>\nSymbol: {symbol}\nSellside Liquidity Swept! Wick hunt below PDL ({pdl}) but body closed inside.\n<b>Bias: BULLISH / BUY</b>")
+
+        # ------------------- 2ND STRATEGY: CHoCH -------------------
+        recent_lh = df_5m['high'].iloc[-10:-2].max()
+        recent_hl = df_5m['low'].iloc[-10:-2].min()
+
+        if prev['close'] > recent_lh:
+            send_telegram(f"⚡ <b>[SMC STRATEGY 2 - BULLISH CHoCH]</b>\nSymbol: {symbol}\nPrevious Bearish L-H Broken with Body Close!\n<b>Trend Shift: Bearish to Bullish</b>")
+        elif prev['close'] < recent_hl:
+            send_telegram(f"⚡ <b>[SMC STRATEGY 2 - BEARISH CHoCH]</b>\nSymbol: {symbol}\nPrevious Bullish H-L Broken with Body Close!\n<b>Trend Shift: Bullish to Bearish</b>")
+
+        # ------------------- 3RD STRATEGY: BOS -------------------
+        prev_hh = df_5m['high'].iloc[-6:-2].max()
+        prev_ll = df_5m['low'].iloc[-6:-2].min()
+
+        if prev['close'] > prev_hh:
+            send_telegram(f"📈 <b>[SMC STRATEGY 3 - BULLISH BOS]</b>\nSymbol: {symbol}\nNew High-High Broken with Body Close. Continuation Upward.")
+        elif prev['close'] < prev_ll:
+            send_telegram(f"📉 <b>[SMC STRATEGY 3 - BEARISH BOS]</b>\nSymbol: {symbol}\nNew Low-Low Broken with Body Close. Continuation Downward.")
+
+        # ------------------- 4TH STRATEGY: BREAKOUT & BOS -------------------
+        if prev['volume'] < avg_vol:
+            if prev['close'] > pdh:
+                send_telegram(f"📊 <b>[SMC STRATEGY 4 - PDH BREAKOUT]</b>\nSymbol: {symbol}\nLow Volume Breakout above PDH. Waiting for BOS Confirmation.")
+            elif prev['close'] < pdl:
+                send_telegram(f"📊 <b>[SMC STRATEGY 4 - PDL BREAKOUT]</b>\nSymbol: {symbol}\nLow Volume Breakout below PDL. Waiting for BOS Confirmation.")
+
+        # ------------------- 5TH STRATEGY: EQH / EQL SWEEP -------------------
+        eqh_level = df_5m['high'].iloc[-15:-3].max()
+        eql_level = df_5m['low'].iloc[-15:-3].min()
+
+        if abs(prev['high'] - eqh_level) / eqh_level < 0.0003 and prev['close'] < eqh_level:
+            send_telegram(f"🎯 <b>[SMC STRATEGY 5 - EQH SWEEP]</b>\nSymbol: {symbol}\nEqual Highs Liquidity Swept! Reversing Back Inside.")
+        if abs(prev['low'] - eql_level) / eql_level < 0.0003 and prev['close'] > eql_level:
+            send_telegram(f"🎯 <b>[SMC STRATEGY 5 - EQL SWEEP]</b>\nSymbol: {symbol}\nEqual Lows Liquidity Swept! Reversing Back Inside.")
+
+        # ------------------- 6TH STRATEGY: BREAKOUT FAILURE (FAKEOUT) -------------------
+        if prev['volume'] > (avg_vol * 1.4):
+            if prev['close'] < pdl and curr['close'] > pdl:
+                send_telegram(f"⚠️ <b>[SMC STRATEGY 6 - FAKEOUT RE-ENTRY]</b>\nSymbol: {symbol}\nHigh Volume PDL Breakout Failed! Price Returned Inside Range.")
+            elif prev['close'] > pdh and curr['close'] < pdh:
+                send_telegram(f"⚠️ <b>[SMC STRATEGY 6 - FAKEOUT RE-ENTRY]</b>\nSymbol: {symbol}\nHigh Volume PDH Breakout Failed! Price Returned Inside Range.")
+
+        # ------------------- 7TH STRATEGY: HTF CRT (1H / 4H SWEEP via 5M) -------------------
+        if df_1h is not None and len(df_1h) >= 2:
+            prev_1h_high = df_1h['high'].iloc[-2]
+            prev_1h_low = df_1h['low'].iloc[-2]
+
+            if prev['high'] > prev_1h_high and prev['close'] < prev_1h_high:
+                send_telegram(f"⏳ <b>[SMC STRATEGY 7 - 1H CRT HIGH SWEEP]</b>\nSymbol: {symbol}\n5M Candle Swept 1H High Liquidity and Returned Inside.")
+            elif prev['low'] < prev_1h_low and prev['close'] > prev_1h_low:
+                send_telegram(f"⏳ <b>[SMC STRATEGY 7 - 1H CRT LOW SWEEP]</b>\nSymbol: {symbol}\n5M Candle Swept 1H Low Liquidity and Returned Inside.")
+
     except Exception as e:
-        print(f"Error fetching data for {symbol}: {e}")
-        return pd.DataFrame()
-
-def analyze_smc_strategies(symbol="GC=F"): # Gold Spot (XAUUSD)
-    df_5m = fetch_data(symbol, period="5d", interval="5m")
-    df_1h = fetch_data(symbol, period="7d", interval="1h")
-    df_4h = fetch_data(symbol, period="14d", interval="1h") # Resampled to 4H
-
-    if df_5m.empty or len(df_5m) < 10:
-        return
-
-    # Calculate PDH & PDL from 1D view
-    df_1d = fetch_data(symbol, period="5d", interval="1d")
-    if len(df_1d) < 2:
-        return
-    pdh = df_1d['High'].iloc[-2]
-    pdl = df_1d['Low'].iloc[-2]
-
-    latest = df_5m.iloc[-1]
-    prev = df_5m.iloc[-2]
-    avg_volume = df_5m['Volume'].rolling(20).mean().iloc[-1]
-
-    # --- STRATEGY 1: PDH / PDL Liquidity Sweep into Range ---
-    # Bullish Sweep (PDL Sweep & return inside)
-    if prev['Low'] < pdl and latest['Close'] > pdl:
-        send_telegram(f"🚨 <b>[SMC Strategy 1 - PDL SWEEP]</b>\nSymbol: {symbol}\nPDL Swept! Price returned inside the range.\nBias: Bullish Reversal Alert")
-    # Bearish Sweep (PDH Sweep & return inside)
-    elif prev['High'] > pdh and latest['Close'] < pdh:
-        send_telegram(f"🚨 <b>[SMC Strategy 1 - PDH SWEEP]</b>\nSymbol: {symbol}\nPDH Swept! Price returned inside the range.\nBias: Bearish Reversal Alert")
-
-    # --- STRATEGY 2: CHoCH (Change of Character) ---
-    recent_high = df_5m['High'].iloc[-10:-2].max()
-    recent_low = df_5m['Low'].iloc[-10:-2].min()
-    if prev['Close'] < recent_high and latest['Close'] > recent_high:
-        send_telegram(f"⚡ <b>[SMC Strategy 2 - CHoCH CONFIRMED]</b>\nSymbol: {symbol}\nTrend Shift: Bearish to Bullish! Previous L-H Broken with Body Close.")
-    elif prev['Close'] > recent_low and latest['Close'] < recent_low:
-        send_telegram(f"⚡ <b>[SMC Strategy 2 - CHoCH CONFIRMED]</b>\nSymbol: {symbol}\nTrend Shift: Bullish to Bearish! Previous H-L Broken with Body Close.")
-
-    # --- STRATEGY 3: BOS (Break of Structure) ---
-    higher_high = df_5m['High'].iloc[-5:-1].max()
-    lower_low = df_5m['Low'].iloc[-5:-1].min()
-    if latest['Close'] > higher_high:
-        send_telegram(f"📈 <b>[SMC Strategy 3 - BULLISH BOS]</b>\nSymbol: {symbol}\nContinuation: Bullish BOS confirmed! New High Breakout.")
-    elif latest['Close'] < lower_low:
-        send_telegram(f"📉 <b>[SMC Strategy 3 - BEARISH BOS]</b>\nSymbol: {symbol}\nContinuation: Bearish BOS confirmed! New Low Breakout.")
-
-    # --- STRATEGY 4: Low Volume Breakout Continuation & BOS ---
-    if latest['Volume'] < avg_volume:
-        if latest['Close'] < pdl and prev['Close'] >= pdl:
-            send_telegram(f"📊 <b>[SMC Strategy 4 - PDL BREAKOUT]</b>\nSymbol: {symbol}\nLow Volume Breakout below PDL. Downtrend Continuation BOS pending.")
-        elif latest['Close'] > pdh and prev['Close'] <= pdh:
-            send_telegram(f"📊 <b>[SMC Strategy 4 - PDH BREAKOUT]</b>\nSymbol: {symbol}\nLow Volume Breakout above PDH. Uptrend Continuation BOS pending.")
-
-    # --- STRATEGY 5: Equal High (EQH) & Equal Low (EQL) Sweep ---
-    last_lows = df_5m['Low'].iloc[-15:-2]
-    last_highs = df_5m['High'].iloc[-15:-2]
-    for l in last_lows:
-        if abs(l - prev['Low']) / l < 0.0005 and latest['Close'] > l: # EQH/EQL Tolerance
-            send_telegram(f"🎯 <b>[SMC Strategy 5 - EQL SWEEP]</b>\nSymbol: {symbol}\nEqual Lows Liquidity Swept and Price Claimed Back.")
-            break
-    for h in last_highs:
-        if abs(h - prev['High']) / h < 0.0005 and latest['Close'] < h:
-            send_telegram(f"🎯 <b>[SMC Strategy 5 - EQH SWEEP]</b>\nSymbol: {symbol}\nEqual Highs Liquidity Swept and Price Claimed Back.")
-            break
-
-    # --- STRATEGY 6: High Volume Breakout Failure (Fakeout Return) ---
-    if latest['Volume'] > (avg_volume * 1.5):
-        if prev['Close'] < pdl and latest['Close'] > pdl:
-            send_telegram(f"⚠️ <b>[SMC Strategy 6 - BREAKOUT FAILURE]</b>\nSymbol: {symbol}\nHigh Volume Breakout Failed! Price Re-entered PDL Range.")
-        elif prev['Close'] > pdh and latest['Close'] < pdh:
-            send_telegram(f"⚠️ <b>[SMC Strategy 6 - BREAKOUT FAILURE]</b>\nSymbol: {symbol}\nHigh Volume Breakout Failed! Price Re-entered PDH Range.")
-
-    # --- STRATEGY 7: CRT (Candle Range Theory 1H / 4H HTF Sweep via 5M) ---
-    if not df_1h.empty and len(df_1h) >= 2:
-        prev_1h_high = df_1h['High'].iloc[-2]
-        prev_1h_low = df_1h['Low'].iloc[-2]
-        if prev['Low'] < prev_1h_low and latest['Close'] > prev_1h_low:
-            send_telegram(f"⏳ <b>[SMC Strategy 7 - 1H CRT SWEEP]</b>\nSymbol: {symbol}\n5M Candle Swept 1H HTF Liquidity Low and Re-entered.")
-        elif prev['High'] > prev_1h_high and latest['Close'] < prev_1h_high:
-            send_telegram(f"⏳ <b>[SMC Strategy 7 - 1H CRT SWEEP]</b>\nSymbol: {symbol}\n5M Candle Swept 1H HTF Liquidity High and Re-entered.")
+        print(f"Analysis Error: {e}")
 
 @app.route('/')
 def home():
-    return "Diptangan SMC Intelligence Engine is Running 24/7!"
+    return "Diptangan Live SMC Engine Running", 200
 
 @app.route('/run')
-def run_bot():
-    analyze_smc_strategies()
-    return "Analysis Triggered", 200
+def run():
+    analyze_smc_live("XAUUSD", "OANDA")
+    analyze_smc_live("BTCUSD", "BITSTAMP")
+    return "OK", 200
 
 if __name__ == "__main__":
-    send_telegram("🚀 <b>Diptangan SMC AI Engine Started Successfully!</b>")
+    send_telegram("✅ <b>Diptangan SMC Live TradingView Engine Reloaded & Active!</b>")
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-    
