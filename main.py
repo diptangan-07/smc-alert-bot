@@ -7,11 +7,11 @@ from flask import Flask, jsonify
 
 app = Flask(__name__)
 
-# Telegram Credentials
+# Telegram Configuration
 TELEGRAM_BOT_TOKEN = "8893050202:AAFbE8vF8-Z5Ci_axHanpJ7cZUQH89MTaOs"
 TELEGRAM_CHAT_ID = "7476331970"
 
-# Asset Tickers
+# Symbols mapped to Yahoo Finance Tickers
 SYMBOLS = {
     "GOLD": "GC=F",
     "SILVER": "SI=F",
@@ -20,6 +20,10 @@ SYMBOLS = {
     "NIFTY 50": "^NSEI",
     "SENSEX": "^BSESN"
 }
+
+# Cache to prevent duplicate alert spamming
+# Format: { "SYMBOL_STRATEGY": last_alert_timestamp }
+ALERT_CACHE = {}
 
 def send_telegram_alert(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -35,94 +39,252 @@ def send_telegram_alert(message):
         print(f"Telegram Error: {e}")
         return False
 
+def should_send_alert(symbol, strategy_id, candle_time):
+    """ Prevents sending duplicate alerts for the exact same 5M candle """
+    key = f"{symbol}_{strategy_id}"
+    last_time = ALERT_CACHE.get(key)
+    if last_time == candle_time:
+        return False
+    ALERT_CACHE[key] = candle_time
+    return True
+
+def get_swing_points(df, window=2):
+    highs = df['High']
+    lows = df['Low']
+    swing_highs, swing_lows = [], []
+    
+    for i in range(window, len(df) - window):
+        if all(highs.iloc[i] > highs.iloc[i-j] for j in range(1, window+1)) and \
+           all(highs.iloc[i] > highs.iloc[i+j] for j in range(1, window+1)):
+            swing_highs.append(highs.iloc[i])
+            
+        if all(lows.iloc[i] < lows.iloc[i-j] for j in range(1, window+1)) and \
+           all(lows.iloc[i] < lows.iloc[i+j] for j in range(1, window+1)):
+            swing_lows.append(lows.iloc[i])
+            
+    return swing_highs, swing_lows
+
 def analyze_smc(symbol_name, ticker):
     try:
-        # Fetching Timeframes Data
         df_5m = yf.download(ticker, period="5d", interval="5m", progress=False)
         df_1d = yf.download(ticker, period="1mo", interval="1d", progress=False)
         df_1h = yf.download(ticker, period="7d", interval="1h", progress=False)
-        df_4h = yf.download(ticker, period="14d", interval="1h", progress=False) # Used for 4H reconstruction
+        df_4h = yf.download(ticker, period="14d", interval="1h", progress=False)
 
         if df_5m.empty or df_1d.empty or len(df_5m) < 20:
             return
 
-        # Flatten Column Headers
         for df in [df_5m, df_1d, df_1h, df_4h]:
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
 
-        # Resample 1H to 4H
         df_4h_res = df_4h.resample('4h').agg({'Open':'first', 'High':'max', 'Low':'min', 'Close':'last'}).dropna()
 
         # Key Levels
         pdh = float(df_1d['High'].iloc[-2])
         pdl = float(df_1d['Low'].iloc[-2])
 
-        curr = df_5m.iloc[-1]
+        # Completed 5M Candle (Index -2 is the last fully closed 5m candle)
         prev = df_5m.iloc[-2]
-
-        c_close, c_high, c_low = float(curr['Close']), float(curr['High']), float(curr['Low'])
+        prev2 = df_5m.iloc[-3]
+        candle_time = str(df_5m.index[-2])
+        
         p_close, p_high, p_low = float(prev['Close']), float(prev['High']), float(prev['Low'])
-        c_vol = float(curr['Volume']) if 'Volume' in curr else 0
-        avg_vol = float(df_5m['Volume'].iloc[-10:].mean()) if 'Volume' in df_5m else 1
+        p2_close = float(prev2['Close'])
+        p_vol = float(prev['Volume']) if 'Volume' in prev else 0
+        avg_vol = float(df_5m['Volume'].iloc[-15:].mean()) if 'Volume' in df_5m else 1
 
-        # Swing Points
-        swing_high = float(df_5m['High'].iloc[-15:-2].max())
-        swing_low = float(df_5m['Low'].iloc[-15:-2].min())
-        ema_20 = df_5m['Close'].ewm(span=20).mean().iloc[-1]
-        is_uptrend = c_close > ema_20
+        sw_highs, sw_lows = get_swing_points(df_5m.iloc[:-1])
+        last_swing_high = sw_highs[-1] if sw_highs else float(df_5m['High'].iloc[-10:-2].max())
+        last_swing_low = sw_lows[-1] if sw_lows else float(df_5m['Low'].iloc[-10:-2].min())
 
-        # --- STRATEGY 1: PDH/PDL Liquidity Sweep / Close Re-entry (5M) ---
-        if c_high > pdh and c_close < pdh:
-            send_telegram_alert(f"🚨 *[STRATEGY 1 ALERT] - {symbol_name}*\n\n🔥 *PDH Liquidity Swept & Returned to Range!*\n• TF: 5M\n• Swept Level: {pdh:.2f}\n• Close: {c_close:.2f}\n• Bias: BEARISH 📉")
-        elif c_low < pdl and c_close > pdl:
-            send_telegram_alert(f"🚨 *[STRATEGY 1 ALERT] - {symbol_name}*\n\n🔥 *PDL Liquidity Swept & Returned to Range!*\n• TF: 5M\n• Swept Level: {pdl:.2f}\n• Close: {c_close:.2f}\n• Bias: BULLISH 📈")
+        # ==================== STRATEGY 1: PDH/PDL SWEEP & RE-ENTRY ====================
+        # PDL Re-entry (Wick Sweep OR Body Break & Return to Range)
+        if (p_low < pdl and p_close > pdl) or (p2_close < pdl and p_close > pdl):
+            if should_send_alert(symbol_name, "S1_BULL", candle_time):
+                send_telegram_alert(
+                    f"🚨 *[STRATEGY 1 ALERT] - {symbol_name}*\n\n"
+                    f"🔥 *PDL Liquidity Swept & Price Re-entered Range!*\n"
+                    f"• Timeframe: 5M\n"
+                    f"• Level: PDL ({pdl:.2f})\n"
+                    f"• 5M Candle Close: {p_close:.2f}\n"
+                    f"• Market Bias: BULLISH 📈"
+                )
 
-        # --- STRATEGY 2: CHoCH (Trend Reversal) ---
-        if not is_uptrend and c_close > swing_high:
-            send_telegram_alert(f"🚨 *[STRATEGY 2 ALERT] - {symbol_name}*\n\n⚡ *CHoCH Confirmed! (Downtrend to Uptrend)*\n• TF: 5M\n• Broken L-H Level: {swing_high:.2f}\n• Body Close Confirmed\n• Bias: BULLISH 📈")
-        elif is_uptrend and c_close < swing_low:
-            send_telegram_alert(f"🚨 *[STRATEGY 2 ALERT] - {symbol_name}*\n\n⚡ *CHoCH Confirmed! (Uptrend to Downtrend)*\n• TF: 5M\n• Broken H-L Level: {swing_low:.2f}\n• Body Close Confirmed\n• Bias: BEARISH 📉")
+        # PDH Re-entry (Wick Sweep OR Body Break & Return to Range)
+        if (p_high > pdh and p_close < pdh) or (p2_close > pdh and p_close < pdh):
+            if should_send_alert(symbol_name, "S1_BEAR", candle_time):
+                send_telegram_alert(
+                    f"🚨 *[STRATEGY 1 ALERT] - {symbol_name}*\n\n"
+                    f"🔥 *PDH Liquidity Swept & Price Re-entered Range!*\n"
+                    f"• Timeframe: 5M\n"
+                    f"• Level: PDH ({pdh:.2f})\n"
+                    f"• 5M Candle Close: {p_close:.2f}\n"
+                    f"• Market Bias: BEARISH 📉"
+                )
 
-        # --- STRATEGY 3: BOS (Trend Continuation) ---
-        if is_uptrend and c_close > swing_high and p_close <= swing_high:
-            send_telegram_alert(f"🚨 *[STRATEGY 3 ALERT] - {symbol_name}*\n\n🚀 *BOS Confirmed (Bullish Trend Continuation)!*\n• TF: 5M\n• Broken Previous H-H: {swing_high:.2f}\n• Bias: BULLISH 📈")
-        elif not is_uptrend and c_close < swing_low and p_close >= swing_low:
-            send_telegram_alert(f"🚨 *[STRATEGY 3 ALERT] - {symbol_name}*\n\n🚀 *BOS Confirmed (Bearish Trend Continuation)!*\n• TF: 5M\n• Broken Previous L-L: {swing_low:.2f}\n• Bias: BEARISH 📉")
+        # ==================== STRATEGY 2: CHoCH (TREND REVERSAL) ====================
+        # Bearish to Bullish CHoCH
+        if p2_close < last_swing_low and p_close > last_swing_high:
+            if should_send_alert(symbol_name, "S2_BULL", candle_time):
+                send_telegram_alert(
+                    f"🚨 *[STRATEGY 2 ALERT] - {symbol_name}*\n\n"
+                    f"⚡ *Bullish CHoCH Confirmed!*\n"
+                    f"• Timeframe: 5M\n"
+                    f"• Trend Shift: Bearish to Bullish\n"
+                    f"• Broken L-H Level: {last_swing_high:.2f}\n"
+                    f"• 5M Body Close Confirmed: {p_close:.2f}\n"
+                    f"• Market Bias: BULLISH 📈"
+                )
 
-        # --- STRATEGY 4: Low Volume Breakout + Continuation BOS ---
-        if (c_close > pdh or c_close < pdl) and c_vol < avg_vol:
-            send_telegram_alert(f"🚨 *[STRATEGY 4 ALERT] - {symbol_name}*\n\n⚠️ *PDH/PDL Breakout with Low Volume!*\n• Level: {'PDH' if c_close > pdh else 'PDL'}\n• Continuation Trend Likely\n• Bias: {'BULLISH 📈' if c_close > pdh else 'BEARISH 📉'}")
+        # Bullish to Bearish CHoCH
+        if p2_close > last_swing_high and p_close < last_swing_low:
+            if should_send_alert(symbol_name, "S2_BEAR", candle_time):
+                send_telegram_alert(
+                    f"🚨 *[STRATEGY 2 ALERT] - {symbol_name}*\n\n"
+                    f"⚡ *Bearish CHoCH Confirmed!*\n"
+                    f"• Timeframe: 5M\n"
+                    f"• Trend Shift: Bullish to Bearish\n"
+                    f"• Broken H-L Level: {last_swing_low:.2f}\n"
+                    f"• 5M Body Close Confirmed: {p_close:.2f}\n"
+                    f"• Market Bias: BEARISH 📉"
+                )
 
-        # --- STRATEGY 5: EQH / EQL Sweeps ---
-        recent_highs = df_5m['High'].iloc[-10:-2]
-        recent_lows = df_5m['Low'].iloc[-10:-2]
-        if abs(recent_highs.max() - p_high) < (p_high * 0.0003) and c_high > p_high and c_close < p_high:
-            send_telegram_alert(f"🚨 *[STRATEGY 5 ALERT] - {symbol_name}*\n\n🎯 *Equal Highs (EQH) Liquidity Swept!*\n• TF: 5M\n• Bias: BEARISH 📉")
-        elif abs(recent_lows.min() - p_low) < (p_low * 0.0003) and c_low < p_low and c_close > p_low:
-            send_telegram_alert(f"🚨 *[STRATEGY 5 ALERT] - {symbol_name}*\n\n🎯 *Equal Lows (EQL) Liquidity Swept!*\n• TF: 5M\n• Bias: BULLISH 📈")
+        # ==================== STRATEGY 3: BOS (TREND CONTINUATION) ====================
+        # Bullish BOS
+        if p2_close <= last_swing_high and p_close > last_swing_high:
+            if should_send_alert(symbol_name, "S3_BULL", candle_time):
+                send_telegram_alert(
+                    f"🚨 *[STRATEGY 3 ALERT] - {symbol_name}*\n\n"
+                    f"🚀 *Bullish BOS Confirmed!*\n"
+                    f"• Timeframe: 5M\n"
+                    f"• New H-H Level Broken: {last_swing_high:.2f}\n"
+                    f"• 5M Body Close Confirmed: {p_close:.2f}\n"
+                    f"• Market Bias: BULLISH 📈"
+                )
 
-        # --- STRATEGY 6: High Volume Breakout Fakeout Re-entry ---
-        if p_close < pdl and c_close > pdl and c_vol > avg_vol:
-            send_telegram_alert(f"🚨 *[STRATEGY 6 ALERT] - {symbol_name}*\n\n💥 *High Volume Breakout Failed - Re-entered Range!*\n• Level: PDL ({pdl:.2f})\n• Bias: BULLISH 📈")
-        elif p_close > pdh and c_close < pdh and c_vol > avg_vol:
-            send_telegram_alert(f"🚨 *[STRATEGY 6 ALERT] - {symbol_name}*\n\n💥 *High Volume Breakout Failed - Re-entered Range!*\n• Level: PDH ({pdh:.2f})\n• Bias: BEARISH 📉")
+        # Bearish BOS
+        if p2_close >= last_swing_low and p_close < last_swing_low:
+            if should_send_alert(symbol_name, "S3_BEAR", candle_time):
+                send_telegram_alert(
+                    f"🚨 *[STRATEGY 3 ALERT] - {symbol_name}*\n\n"
+                    f"🚀 *Bearish BOS Confirmed!*\n"
+                    f"• Timeframe: 5M\n"
+                    f"• New L-L Level Broken: {last_swing_low:.2f}\n"
+                    f"• 5M Body Close Confirmed: {p_close:.2f}\n"
+                    f"• Market Bias: BEARISH 📉"
+                )
 
-        # --- STRATEGY 7: 1H & 4H CRT Sweeps via 5M Candle ---
+        # ==================== STRATEGY 4: LOW VOLUME BREAKOUT & CONTINUATION ====================
+        if p_close < pdl and p_vol < avg_vol and p2_close >= pdl:
+            if should_send_alert(symbol_name, "S4_BEAR", candle_time):
+                send_telegram_alert(
+                    f"🚨 *[STRATEGY 4 ALERT] - {symbol_name}*\n\n"
+                    f"⚠️ *PDL Breakout with Low Volume!*\n"
+                    f"• Level Broken: PDL ({pdl:.2f})\n"
+                    f"• New Bearish Trend Active\n"
+                    f"• Market Bias: BEARISH 📉"
+                )
+        elif p_close > pdh and p_vol < avg_vol and p2_close <= pdh:
+            if should_send_alert(symbol_name, "S4_BULL", candle_time):
+                send_telegram_alert(
+                    f"🚨 *[STRATEGY 4 ALERT] - {symbol_name}*\n\n"
+                    f"⚠️ *PDH Breakout with Low Volume!*\n"
+                    f"• Level Broken: PDH ({pdh:.2f})\n"
+                    f"• New Uptrend Active\n"
+                    f"• Market Bias: BULLISH 📈"
+                )
+
+        # ==================== STRATEGY 5: HTF (1H / 4H) EQH & EQL SWEEPS ====================
+        h1_sw_highs, h1_sw_lows = get_swing_points(df_1h.iloc[:-1], window=2)
+        
+        if h1_sw_highs:
+            htf_eqh = h1_sw_highs[-1]
+            if p_high > htf_eqh and p_close < htf_eqh:
+                if should_send_alert(symbol_name, "S5_EQH", candle_time):
+                    send_telegram_alert(
+                        f"🚨 *[STRATEGY 5 ALERT] - {symbol_name}*\n\n"
+                        f"🎯 *HTF Equal Highs (EQH) Liquidity Swept by 5M Candle!*\n"
+                        f"• HTF EQH Level: {htf_eqh:.2f}\n"
+                        f"• 5M Close Back Inside: {p_close:.2f}\n"
+                        f"• Market Bias: BEARISH 📉"
+                    )
+
+        if h1_sw_lows:
+            htf_eql = h1_sw_lows[-1]
+            if p_low < htf_eql and p_close > htf_eql:
+                if should_send_alert(symbol_name, "S5_EQL", candle_time):
+                    send_telegram_alert(
+                        f"🚨 *[STRATEGY 5 ALERT] - {symbol_name}*\n\n"
+                        f"🎯 *HTF Equal Lows (EQL) Liquidity Swept by 5M Candle!*\n"
+                        f"• HTF EQL Level: {htf_eql:.2f}\n"
+                        f"• 5M Close Back Inside: {p_close:.2f}\n"
+                        f"• Market Bias: BULLISH 📈"
+                    )
+
+        # ==================== STRATEGY 6: HIGH VOLUME FAKEOUT RANGE RE-ENTRY ====================
+        if p2_close < pdl and p_close > pdl and p_vol > avg_vol:
+            if should_send_alert(symbol_name, "S6_BULL", candle_time):
+                send_telegram_alert(
+                    f"🚨 *[STRATEGY 6 ALERT] - {symbol_name}*\n\n"
+                    f"💥 *High Volume Breakout Failed - Price Re-entered Range!*\n"
+                    f"• Swept Level: PDL ({pdl:.2f})\n"
+                    f"• 5M Candle Close: {p_close:.2f}\n"
+                    f"• Market Bias: BULLISH 📈"
+                )
+        elif p2_close > pdh and p_close < pdh and p_vol > avg_vol:
+            if should_send_alert(symbol_name, "S6_BEAR", candle_time):
+                send_telegram_alert(
+                    f"🚨 *[STRATEGY 6 ALERT] - {symbol_name}*\n\n"
+                    f"💥 *High Volume Breakout Failed - Price Re-entered Range!*\n"
+                    f"• Swept Level: PDH ({pdh:.2f})\n"
+                    f"• 5M Candle Close: {p_close:.2f}\n"
+                    f"• Market Bias: BEARISH 📉"
+                )
+
+        # ==================== STRATEGY 7: 1H & 4H CRT SWEEPS (BY 5M CANDLE) ====================
         h1_high, h1_low = float(df_1h['High'].iloc[-2]), float(df_1h['Low'].iloc[-2])
         h4_high, h4_low = float(df_4h_res['High'].iloc[-2]), float(df_4h_res['Low'].iloc[-2])
 
-        # 1H CRT
-        if c_high > h1_high and c_close < h1_high:
-            send_telegram_alert(f"🚨 *[STRATEGY 7 ALERT] - {symbol_name}*\n\n⏰ *1H CRT High Swept by 5M Candle!*\n• 1H High: {h1_high:.2f}\n• 5M Closed Inside Range\n• Bias: BEARISH 📉")
-        elif c_low < h1_low and c_close > h1_low:
-            send_telegram_alert(f"🚨 *[STRATEGY 7 ALERT] - {symbol_name}*\n\n⏰ *1H CRT Low Swept by 5M Candle!*\n• 1H Low: {h1_low:.2f}\n• 5M Closed Inside Range\n• Bias: BULLISH 📈")
+        # 1H CRT Sweeps
+        if p_high > h1_high and p_close < h1_high:
+            if should_send_alert(symbol_name, "S7_1H_HIGH", candle_time):
+                send_telegram_alert(
+                    f"🚨 *[STRATEGY 7 ALERT] - {symbol_name}*\n\n"
+                    f"⏰ *1H CRT High Swept by 5M Candle!*\n"
+                    f"• 1H High Level: {h1_high:.2f}\n"
+                    f"• 5M Close Back Inside: {p_close:.2f}\n"
+                    f"• Market Bias: BEARISH 📉"
+                )
+        elif p_low < h1_low and p_close > h1_low:
+            if should_send_alert(symbol_name, "S7_1H_LOW", candle_time):
+                send_telegram_alert(
+                    f"🚨 *[STRATEGY 7 ALERT] - {symbol_name}*\n\n"
+                    f"⏰ *1H CRT Low Swept by 5M Candle!*\n"
+                    f"• 1H Low Level: {h1_low:.2f}\n"
+                    f"• 5M Close Back Inside: {p_close:.2f}\n"
+                    f"• Market Bias: BULLISH 📈"
+                )
 
-        # 4H CRT
-        if c_high > h4_high and c_close < h4_high:
-            send_telegram_alert(f"🚨 *[STRATEGY 7 ALERT] - {symbol_name}*\n\n⏰ *4H CRT High Swept by 5M Candle!*\n• 4H High: {h4_high:.2f}\n• 5M Closed Inside Range\n• Bias: BEARISH 📉")
-        elif c_low < h4_low and c_close > h4_low:
-            send_telegram_alert(f"🚨 *[STRATEGY 7 ALERT] - {symbol_name}*\n\n⏰ *4H CRT Low Swept by 5M Candle!*\n• 4H Low: {h4_low:.2f}\n• 5M Closed Inside Range\n• Bias: BULLISH 📈")
+        # 4H CRT Sweeps
+        if p_high > h4_high and p_close < h4_high:
+            if should_send_alert(symbol_name, "S7_4H_HIGH", candle_time):
+                send_telegram_alert(
+                    f"🚨 *[STRATEGY 7 ALERT] - {symbol_name}*\n\n"
+                    f"⏰ *4H CRT High Swept by 5M Candle!*\n"
+                    f"• 4H High Level: {h4_high:.2f}\n"
+                    f"• 5M Close Back Inside: {p_close:.2f}\n"
+                    f"• Market Bias: BEARISH 📉"
+                )
+        elif p_low < h4_low and p_close > h4_low:
+            if should_send_alert(symbol_name, "S7_4H_LOW", candle_time):
+                send_telegram_alert(
+                    f"🚨 *[STRATEGY 7 ALERT] - {symbol_name}*\n\n"
+                    f"⏰ *4H CRT Low Swept by 5M Candle!*\n"
+                    f"• 4H Low Level: {h4_low:.2f}\n"
+                    f"• 5M Close Back Inside: {p_close:.2f}\n"
+                    f"• Market Bias: BULLISH 📈"
+                )
 
     except Exception as e:
         print(f"Error on {symbol_name}: {e}")
@@ -139,4 +301,3 @@ def run_scan():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
-        
