@@ -3,6 +3,8 @@ import requests
 import pandas as pd
 import numpy as np
 import yfinance as yf
+from datetime import datetime
+import pytz
 from flask import Flask, jsonify
 
 app = Flask(__name__)
@@ -11,18 +13,29 @@ app = Flask(__name__)
 TELEGRAM_BOT_TOKEN = "8893050202:AAFbE8vF8-Z5Ci_axHanpJ7cZUQH89MTaOs"
 TELEGRAM_CHAT_ID = "7476331970"
 
-# Symbols mapped to Yahoo Finance Tickers
+# Symbols (Silver and ETH removed as requested)
 SYMBOLS = {
     "GOLD": "GC=F",
-    "SILVER": "SI=F",
     "BTCUSD": "BTC-USD",
-    "ETHUSD": "ETH-USD",
     "NIFTY 50": "^NSEI",
     "SENSEX": "^BSESN"
 }
 
-# Anti-Spam Tracking Cache
 ALERT_CACHE = {}
+
+def is_indian_market_open():
+    """ Check if Indian Stock Market (NSE/BSE) is currently open """
+    tz = pytz.timezone('Asia/Kolkata')
+    now = datetime.now(tz)
+    
+    # Weekend Check (Saturday = 5, Sunday = 6)
+    if now.weekday() >= 5:
+        return False
+        
+    market_start = now.replace(hour=9, minute=15, second=0, microsecond=0)
+    market_end = now.replace(hour=15, minute=30, second=0, microsecond=0)
+    
+    return market_start <= now <= market_end
 
 def send_telegram_alert(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -39,6 +52,7 @@ def send_telegram_alert(message):
         return False
 
 def should_send_alert(symbol, strategy_id, candle_time):
+    """ Prevents repeat alerts for the exact same 5-minute candle """
     key = f"{symbol}_{strategy_id}"
     if ALERT_CACHE.get(key) == candle_time:
         return False
@@ -62,17 +76,14 @@ def get_swing_points(df, window=2):
     return swing_highs, swing_lows
 
 def find_eqh_eql(df, tolerance=0.001):
-    """ Detects Double Tops (EQH) and Double Bottoms (EQL) """
     sw_highs, sw_lows = get_swing_points(df, window=2)
     eqh_levels, eql_levels = [], []
 
-    # Check Equal Highs
     for i in range(len(sw_highs)-1):
         for j in range(i+1, len(sw_highs)):
             if abs(sw_highs[i] - sw_highs[j]) / sw_highs[i] <= tolerance:
                 eqh_levels.append(max(sw_highs[i], sw_highs[j]))
 
-    # Check Equal Lows
     for i in range(len(sw_lows)-1):
         for j in range(i+1, len(sw_lows)):
             if abs(sw_lows[i] - sw_lows[j]) / sw_lows[i] <= tolerance:
@@ -81,6 +92,10 @@ def find_eqh_eql(df, tolerance=0.001):
     return eqh_levels, eql_levels
 
 def analyze_smc(symbol_name, ticker):
+    # Stop scanning Indian indices outside market hours
+    if symbol_name in ["NIFTY 50", "SENSEX"] and not is_indian_market_open():
+        return
+
     try:
         df_5m = yf.download(ticker, period="5d", interval="5m", progress=False)
         df_1d = yf.download(ticker, period="1mo", interval="1d", progress=False)
@@ -96,11 +111,9 @@ def analyze_smc(symbol_name, ticker):
 
         df_4h_res = df_4h.resample('4h').agg({'Open':'first', 'High':'max', 'Low':'min', 'Close':'last'}).dropna()
 
-        # Key Daily Levels
         pdh = float(df_1d['High'].iloc[-2])
         pdl = float(df_1d['Low'].iloc[-2])
 
-        # 5M Closed Candle Data
         prev = df_5m.iloc[-2]
         prev2 = df_5m.iloc[-3]
         candle_time = str(df_5m.index[-2])
@@ -114,8 +127,8 @@ def analyze_smc(symbol_name, ticker):
         last_swing_high = sw_highs[-1] if sw_highs else float(df_5m['High'].iloc[-10:-2].max())
         last_swing_low = sw_lows[-1] if sw_lows else float(df_5m['Low'].iloc[-10:-2].min())
 
-        # ==================== STRATEGY 1: PDH/PDL SWEEP & RANGE RE-ENTRY ====================
-        # PDL Sweep / Breakout & Return to Range
+        # ==================== STRATEGY 1: PDH/PDL LIQUIDITY SWEEP & RE-ENTRY ====================
+        # Case A: Wick sweep or candle closed outside then re-entered range on 5m
         if (p_low < pdl and p_close > pdl) or (p2_close < pdl and p_close > pdl):
             if should_send_alert(symbol_name, "S1_BULL", candle_time):
                 send_telegram_alert(
@@ -127,7 +140,6 @@ def analyze_smc(symbol_name, ticker):
                     f"• Market Bias: BULLISH 📈"
                 )
 
-        # PDH Sweep / Breakout & Return to Range
         if (p_high > pdh and p_close < pdh) or (p2_close > pdh and p_close < pdh):
             if should_send_alert(symbol_name, "S1_BEAR", candle_time):
                 send_telegram_alert(
@@ -139,7 +151,7 @@ def analyze_smc(symbol_name, ticker):
                     f"• Market Bias: BEARISH 📉"
                 )
 
-        # ==================== STRATEGY 2: CHoCH (TREND REVERSAL) ====================
+        # ==================== STRATEGY 2: CHoCH (CHANGE OF CHARACTER) ====================
         if p2_close < last_swing_low and p_close > last_swing_high:
             if should_send_alert(symbol_name, "S2_BULL", candle_time):
                 send_telegram_alert(
@@ -162,7 +174,7 @@ def analyze_smc(symbol_name, ticker):
                     f"• Market Bias: BEARISH 📉"
                 )
 
-        # ==================== STRATEGY 3: BOS (TREND CONTINUATION) ====================
+        # ==================== STRATEGY 3: BOS (BREAK OF STRUCTURE) ====================
         if p2_close <= last_swing_high and p_close > last_swing_high:
             if should_send_alert(symbol_name, "S3_BULL", candle_time):
                 send_telegram_alert(
@@ -185,7 +197,7 @@ def analyze_smc(symbol_name, ticker):
                     f"• Market Bias: BEARISH 📉"
                 )
 
-        # ==================== STRATEGY 4: LOW VOLUME BREAKOUT CONTINUATION ====================
+        # ==================== STRATEGY 4: LOW VOLUME BREAKOUT & TREND BOS ====================
         if p_close < pdl and p_vol < avg_vol and p_close < last_swing_low:
             if should_send_alert(symbol_name, "S4_BEAR", candle_time):
                 send_telegram_alert(
@@ -205,7 +217,7 @@ def analyze_smc(symbol_name, ticker):
                     f"• Market Bias: BULLISH CONTINUATION 📈"
                 )
 
-        # ==================== STRATEGY 5: EQUAL HIGHS (EQH) & EQUAL LOWS (EQL) SWEEPS ====================
+        # ==================== STRATEGY 5: HTF EQUAL HIGHS / EQUAL LOWS ====================
         h1_eqh, h1_eql = find_eqh_eql(df_1h.iloc[:-1])
         h4_eqh, h4_eql = find_eqh_eql(df_4h_res.iloc[:-1])
 
@@ -214,7 +226,7 @@ def analyze_smc(symbol_name, ticker):
 
         for eqh in all_eqh:
             if p_high > eqh and p_close < eqh:
-                if should_send_alert(symbol_name, f"S5_EQH_{round(eqh,1)}", candle_time):
+                if should_send_alert(symbol_name, "S5_EQH", candle_time):
                     send_telegram_alert(
                         f"🚨 *[STRATEGY 5 ALERT] - {symbol_name}*\n\n"
                         f"🎯 *HTF Equal Highs (EQH) Liquidity Swept by 5M Candle!*\n"
@@ -225,7 +237,7 @@ def analyze_smc(symbol_name, ticker):
 
         for eql in all_eql:
             if p_low < eql and p_close > eql:
-                if should_send_alert(symbol_name, f"S5_EQL_{round(eql,1)}", candle_time):
+                if should_send_alert(symbol_name, "S5_EQL", candle_time):
                     send_telegram_alert(
                         f"🚨 *[STRATEGY 5 ALERT] - {symbol_name}*\n\n"
                         f"🎯 *HTF Equal Lows (EQL) Liquidity Swept by 5M Candle!*\n"
@@ -234,7 +246,7 @@ def analyze_smc(symbol_name, ticker):
                         f"• Market Bias: BULLISH 📈"
                     )
 
-        # ==================== STRATEGY 6: HIGH VOLUME FAKEOUT RANGE RE-ENTRY ====================
+        # ==================== STRATEGY 6: HIGH VOLUME BREAKOUT FAILED & RE-ENTRY ====================
         if p2_close < pdl and p_close > pdl and p_vol > avg_vol:
             if should_send_alert(symbol_name, "S6_BULL", candle_time):
                 send_telegram_alert(
@@ -254,11 +266,11 @@ def analyze_smc(symbol_name, ticker):
                     f"• Market Bias: BEARISH 📉"
                 )
 
-        # ==================== STRATEGY 7: CRT (CANDLE RANGE THEORY - 1H & 4H) ====================
+        # ==================== STRATEGY 7: CRT (1H & 4H SWEEP BY 5M CANDLE) ====================
         h1_high, h1_low = float(df_1h['High'].iloc[-2]), float(df_1h['Low'].iloc[-2])
         h4_high, h4_low = float(df_4h_res['High'].iloc[-2]), float(df_4h_res['Low'].iloc[-2])
 
-        # 1H CRT Sweeps
+        # 1-Hour CRT
         if (p_high > h1_high and p_close < h1_high) or (p2_high > h1_high and p2_close > h1_high and p_close < h1_high):
             if should_send_alert(symbol_name, "S7_1H_HIGH", candle_time):
                 send_telegram_alert(
@@ -278,7 +290,7 @@ def analyze_smc(symbol_name, ticker):
                     f"• Market Bias: BULLISH 📈"
                 )
 
-        # 4H CRT Sweeps
+        # 4-Hour CRT
         if (p_high > h4_high and p_close < h4_high) or (p2_high > h4_high and p2_close > h4_high and p_close < h4_high):
             if should_send_alert(symbol_name, "S7_4H_HIGH", candle_time):
                 send_telegram_alert(
@@ -303,13 +315,13 @@ def analyze_smc(symbol_name, ticker):
 
 @app.route('/')
 def home():
-    return "TRADE WITH_____ICT-DIPTANGAN Live Scanning Engine Active!"
+    return "TRADE WITH_____ICT-DIPTANGAN Live Engine Active!"
 
 @app.route('/run')
 def run_scan():
     for name, ticker in SYMBOLS.items():
         analyze_smc(name, ticker)
-    return jsonify({"status": "success", "message": "Scanned GOLD, SILVER, BTC, ETH, NIFTY 50, SENSEX"})
+    return jsonify({"status": "success", "message": "Scanned GOLD, BTC, NIFTY 50, SENSEX"})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
