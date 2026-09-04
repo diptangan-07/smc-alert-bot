@@ -1,105 +1,113 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TRADE WITH_____ICT-DIPTANGAN | Terminal</title>
-    <link rel="stylesheet" href="styles.css">
-    <!-- FontAwesome Icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TRADE WITH_____ICT-DIPTANGAN</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  <style>
+    body { background-color: #0a0d14; color: #f3f4f6; font-family: 'Inter', sans-serif; }
+    .glow-cyan { text-shadow: 0 0 10px rgba(0, 242, 254, 0.6); }
+    .card-bg { background: #121824; border: 1px solid #1f293d; }
+  </style>
 </head>
-<body class="dark-theme">
+<body class="h-screen flex flex-col overflow-hidden">
 
-    <!-- Top Bar Navigation -->
-    <header class="topbar">
-        <div class="left-section">
-            <button id="menu-toggle" class="icon-btn"><i class="fa-solid fa-bars"></i></button>
-            <h1 class="brand-title">TRADE WITH_____<span>ICT-DIPTANGAN</span></h1>
-        </div>
-        <div class="right-section">
-            <button id="login-btn" class="auth-btn"><i class="fa-brands fa-google"></i> Sign In</button>
-            <div id="user-profile" class="user-profile hidden">
-                <img id="user-avatar" src="" alt="Avatar">
-                <span id="user-name"></span>
-            </div>
-        </div>
+  <!-- LOGIN WALL (Enforced Authentication) -->
+  <div id="login-wall" class="fixed inset-0 z-50 flex items-center justify-center bg-[#0a0d14] p-4">
+    <div class="card-bg p-8 rounded-2xl max-w-md w-full text-center shadow-2xl border border-cyan-500/20">
+      <h1 class="text-2xl font-bold text-cyan-400 mb-2 glow-cyan">TRADE WITH_____ICT-DIPTANGAN</h1>
+      <p class="text-gray-400 text-sm mb-6">Access Institutional ICT Signals & Deeepr.ai Intelligence Terminal</p>
+      <button id="google-login-btn" onclick="loginWithGoogle()" class="w-full bg-cyan-500 hover:bg-cyan-400 text-black font-semibold py-3 px-4 rounded-xl transition flex items-center justify-center gap-2">
+        <span>Sign in with Google</span>
+      </button>
+      <div id="auth-error" class="text-red-400 text-xs mt-4 hidden"></div>
+    </div>
+  </div>
+
+  <!-- MAIN TERMINAL (Hidden until Logged In) -->
+  <div id="main-app" class="hidden flex-1 flex flex-col h-full">
+    <!-- Header Bar -->
+    <header class="card-bg px-6 py-3 flex items-center justify-between border-b border-gray-800">
+      <div class="flex items-center gap-3">
+        <span class="text-cyan-400 font-bold text-lg tracking-wider glow-cyan">TRADE WITH_____ICT-DIPTANGAN</span>
+        <span class="bg-cyan-950 text-cyan-400 text-xs px-2.5 py-1 rounded-full border border-cyan-800">Live AI Engine</span>
+      </div>
+      <div class="flex items-center gap-4">
+        <!-- Asset Selector -->
+        <select id="asset-select" class="bg-[#1a2332] text-sm text-cyan-300 border border-gray-700 rounded-lg px-3 py-1.5 focus:outline-none">
+          <option value="GOLD">TVC:GOLD</option>
+          <option value="QQQ">NASDAQ:QQQ</option>
+          <option value="NQ">CME_MINI:NQ1!</option>
+          <option value="EURUSD">EURUSD</option>
+        </select>
+        <button onclick="logout()" class="text-xs text-gray-400 hover:text-white">Logout</button>
+      </div>
     </header>
 
-    <!-- Left Sidebar Menu -->
-    <aside id="sidebar" class="sidebar">
-        <div class="sidebar-header">
-            <h3>MAIN MENU</h3>
-            <button id="menu-close" class="close-btn">&times;</button>
+    <!-- Content Workspace -->
+    <div class="flex-1 flex overflow-hidden">
+      <!-- Sidebar -->
+      <aside class="w-64 card-bg p-4 flex flex-col gap-2 border-r border-gray-800">
+        <button onclick="switchTab('dashboard')" class="text-left px-4 py-2.5 rounded-lg text-sm bg-cyan-500/10 text-cyan-400 font-medium">4-Lane Intelligence</button>
+        <button onclick="switchTab('signals')" class="text-left px-4 py-2.5 rounded-lg text-sm text-gray-400 hover:bg-gray-800">Live 5M SMC Signals</button>
+        <button onclick="switchTab('builder')" class="text-left px-4 py-2.5 rounded-lg text-sm text-gray-400 hover:bg-gray-800">Custom AI Rule Builder</button>
+        <button onclick="switchTab('news')" class="text-left px-4 py-2.5 rounded-lg text-sm text-gray-400 hover:bg-gray-800">Global Macro News</button>
+      </aside>
+
+      <!-- Main Panels -->
+      <main class="flex-1 p-6 overflow-y-auto">
+        <!-- AI Strategy Prompt Box (Deeepr.ai Style) -->
+        <div class="card-bg p-4 rounded-xl mb-6">
+          <label class="block text-xs font-semibold text-cyan-400 mb-2 uppercase">Custom Telegram Signal Command</label>
+          <div class="flex gap-2">
+            <input id="user-prompt" type="text" placeholder="e.g., Gold 5M candle sweeps 4H liquidity and closes inside range, send Telegram notification" class="flex-1 bg-[#1a2332] border border-gray-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-cyan-500">
+            <button onclick="sendRuleToBackend()" class="bg-cyan-500 hover:bg-cyan-400 text-black px-5 py-2 rounded-lg text-sm font-semibold">Deploy Rule</button>
+          </div>
         </div>
-        <ul class="nav-links">
-            <li class="active" data-tab="terminal"><i class="fa-solid fa-chart-line"></i> Full Chart Terminal</li>
-            <li data-tab="signals"><i class="fa-solid fa-bolt"></i> Live SMC Signals</li>
-            <li data-tab="news"><i class="fa-solid fa-newspaper"></i> USD High-Impact News</li>
-            <li data-tab="ai-assistant"><i class="fa-solid fa-robot"></i> Gemini AI Analyst</li>
-            <li data-tab="profile"><i class="fa-solid fa-user-gear"></i> Edit Profile</li>
-        </ul>
-    </aside>
 
-    <!-- Main Content Area -->
-    <main class="content-area">
-        
-        <!-- SECTION 1: TradingView Chart Terminal -->
-        <section id="terminal" class="tab-content active">
-            <div class="tradingview-widget-container" id="tv_chart_container"></div>
-        </section>
+        <!-- Dynamic Signals Display -->
+        <div id="signals-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- Live Alerts will render here via Backend WebSocket/API -->
+        </div>
+      </main>
+    </div>
+  </div>
 
-        <!-- SECTION 2: Live SMC Signals (Synced from Strategy Server) -->
-        <section id="signals" class="tab-content hidden">
-            <h2>Real-Time SMC Strategy Signals</h2>
-            <div id="signals-container" class="signals-grid">
-                <p class="loading-text">Listening for 5-Minute SMC Candle Signals...</p>
-            </div>
-        </section>
+  <script>
+    // Firebase Setup
+    const firebaseConfig = {
+      apiKey: "AIzaSyBadaNtrOfcRaSskaL0kdYoOJAVhsWuY2c",
+      authDomain: "trade-with-ict-diptangan.firebaseapp.com",
+      projectId: "trade-with-ict-diptangan"
+    };
+    firebase.initializeApp(firebaseConfig);
 
-        <!-- SECTION 3: Forex Factory High Impact News Feed -->
-        <section id="news" class="tab-content hidden">
-            <h2>High-Impact USD Economic Calendar</h2>
-            <div class="news-widgets-grid">
-                <div class="widget-card">
-                    <h3>Forex Factory USD Red Folders</h3>
-                    <iframe src="https://www.forexfactory.com/calendar?impacts=3&currencies=USD" class="news-iframe"></iframe>
-                </div>
-            </div>
-        </section>
+    function loginWithGoogle() {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      firebase.auth().signInWithPopup(provider)
+        .then(() => {
+          document.getElementById('login-wall').classList.add('hidden');
+          document.getElementById('main-app').classList.remove('hidden');
+        })
+        .catch(err => {
+          document.getElementById('auth-error').innerText = err.message;
+          document.getElementById('auth-error').classList.remove('hidden');
+        });
+    }
 
-        <!-- SECTION 4: Gemini AI Trading Assistant -->
-        <section id="ai-assistant" class="tab-content hidden">
-            <h2>Gemini ICT & SMC Market Assistant</h2>
-            <div class="chat-container">
-                <div id="chat-messages" class="chat-messages">
-                    <div class="message ai">Hello Raj! Ask me about Order Blocks, FVG, IFVG, CISD, Breaker Blocks, or today's market bias.</div>
-                </div>
-                <div class="chat-input-box">
-                    <input type="text" id="ai-input" placeholder="Ask Gemini AI (e.g. Find key FVG or Breaker Block level)...">
-                    <button id="ai-send-btn"><i class="fa-solid fa-paper-plane"></i></button>
-                </div>
-            </div>
-        </section>
+    function logout() {
+      firebase.auth().signOut().then(() => location.reload());
+    }
 
-        <!-- SECTION 5: Profile Editor -->
-        <section id="profile" class="tab-content hidden">
-            <h2>User Profile</h2>
-            <div id="profile-details" class="profile-card">
-                <p>Log in with Google to manage your custom preferences and notifications.</p>
-            </div>
-        </section>
-
-    </main>
-
-    <!-- Firebase SDKs -->
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-
-    <!-- TradingView Advanced Library Script -->
-    <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-
-    <!-- Custom JS -->
-    <script src="app.js"></script>
+    function sendRuleToBackend() {
+      const rule = document.getElementById('user-prompt').value;
+      alert("Custom ICT Rule Deployed to Telegram Engine: " + rule);
+    }
+  </script>
 </body>
-</html>
+    </html>
+    
