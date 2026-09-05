@@ -1,4 +1,6 @@
-pandas
-yfinance
+Flask
 requests
-schedule
+pandas
+numpy
+yfinance
+pytz
