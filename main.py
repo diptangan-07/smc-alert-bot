@@ -14,8 +14,8 @@ app = Flask(__name__)
 # TELEGRAM
 # ============================================================
 
-TELEGRAM_BOT_TOKEN = os.getenv("8893050202:AAFbE8vF8-Z5Ci_axHanpJ7cZUQH89MTaOs")
-TELEGRAM_CHAT_ID = os.getenv("7476331970")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN" ,"8893050202:AAFbE8vF8-Z5Ci_axHanpJ7cZUQH89MTaOs")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "7476331970")
 
 # ============================================================
 # MARKETS
@@ -757,4 +757,217 @@ def analyze_smc(symbol_name, ticker):
         pdh_breakout_previous = prev_close > pdh
 
         pdl_return = (
-            pdl
+            pdl_breakout_previous
+            and close >= pdl
+            and strong_volume
+        )
+
+        pdh_return = (
+            pdh_breakout_previous
+            and close <= pdh
+            and strong_volume
+        )
+
+        if pdl_return:
+
+            if should_send_alert(
+                symbol_name,
+                "S6_PDL_RETURN",
+                candle_time
+            ):
+
+                send_telegram_alert(
+                    alert_header(6, symbol_name)
+                    +
+                    "🔄 *Price Returned Inside PDH–PDL Range*\n\n"
+                    f"• PDL: `{pdl:.2f}`\n"
+                    f"• 5M Close: `{close:.2f}`\n"
+                    "• Previous State: *Below PDL*\n"
+                    "• Return Confirmed"
+                )
+
+        if pdh_return:
+
+            if should_send_alert(
+                symbol_name,
+                "S6_PDH_RETURN",
+                candle_time
+            ):
+
+                send_telegram_alert(
+                    alert_header(6, symbol_name)
+                    +
+                    "🔄 *Price Returned Inside PDH–PDL Range*\n\n"
+                    f"• PDH: `{pdh:.2f}`\n"
+                    f"• 5M Close: `{close:.2f}`\n"
+                    "• Previous State: *Above PDH*\n"
+                    "• Return Confirmed"
+                )
+
+        # ====================================================
+        # STRATEGY 7
+        # CRT — ONLY 1H & 4H
+        #
+        # IMPORTANT:
+        # User requested:
+        # If 5M candle sweeps previous 1H/4H
+        # liquidity -> alert immediately.
+        #
+        # No requirement for 5M return confirmation here.
+        # ====================================================
+
+        previous_1h = df1h.iloc[-2]
+
+        h1_high = float(previous_1h["High"])
+        h1_low = float(previous_1h["Low"])
+
+        # Previous completed 4H candle
+        if len(completed_4h) >= 2:
+
+            previous_4h = completed_4h.iloc[-2]
+
+            h4_high = float(previous_4h["High"])
+            h4_low = float(previous_4h["Low"])
+
+            # 1H HIGH sweep
+            if high > h1_high:
+
+                if should_send_alert(
+                    symbol_name,
+                    "S7_1H_HIGH",
+                    candle_time
+                ):
+
+                    send_telegram_alert(
+                        alert_header(7, symbol_name)
+                        +
+                        "⏰ *1H CRT HIGH LIQUIDITY SWEPT*\n\n"
+                        f"• Previous 1H High: `{h1_high:.2f}`\n"
+                        f"• 5M Sweep High: `{high:.2f}`\n"
+                        "• Sweep Detected by: *5M Candle*\n"
+                    )
+
+            # 1H LOW sweep
+            if low < h1_low:
+
+                if should_send_alert(
+                    symbol_name,
+                    "S7_1H_LOW",
+                    candle_time
+                ):
+
+                    send_telegram_alert(
+                        alert_header(7, symbol_name)
+                        +
+                        "⏰ *1H CRT LOW LIQUIDITY SWEPT*\n\n"
+                        f"• Previous 1H Low: `{h1_low:.2f}`\n"
+                        f"• 5M Sweep Low: `{low:.2f}`\n"
+                        "• Sweep Detected by: *5M Candle*\n"
+                    )
+
+            # 4H HIGH sweep
+            if high > h4_high:
+
+                if should_send_alert(
+                    symbol_name,
+                    "S7_4H_HIGH",
+                    candle_time
+                ):
+
+                    send_telegram_alert(
+                        alert_header(7, symbol_name)
+                        +
+                        "⏰ *4H CRT HIGH LIQUIDITY SWEPT*\n\n"
+                        f"• Previous 4H High: `{h4_high:.2f}`\n"
+                        f"• 5M Sweep High: `{high:.2f}`\n"
+                        "• Sweep Detected by: *5M Candle*\n"
+                    )
+
+            # 4H LOW sweep
+            if low < h4_low:
+
+                if should_send_alert(
+                    symbol_name,
+                    "S7_4H_LOW",
+                    candle_time
+                ):
+
+                    send_telegram_alert(
+                        alert_header(7, symbol_name)
+                        +
+                        "⏰ *4H CRT LOW LIQUIDITY SWEPT*\n\n"
+                        f"• Previous 4H Low: `{h4_low:.2f}`\n"
+                        f"• 5M Sweep Low: `{low:.2f}`\n"
+                        "• Sweep Detected by: *5M Candle*\n"
+                    )
+
+    except Exception as e:
+
+        print(
+            f"Analysis error [{symbol_name}]: {e}"
+        )
+
+
+# ============================================================
+# FLASK ROUTES
+# ============================================================
+
+@app.route("/")
+def home():
+
+    return (
+        "TRADE WITH ICT-DIPTANGAN "
+        "SMC ALERT ENGINE ACTIVE"
+    )
+
+
+@app.route("/run")
+def run_scan():
+
+    results = []
+
+    for name, ticker in SYMBOLS.items():
+
+        try:
+
+            analyze_smc(
+                name,
+                ticker
+            )
+
+            results.append({
+                "symbol": name,
+                "status": "scanned"
+            })
+
+        except Exception as e:
+
+            results.append({
+                "symbol": name,
+                "status": "error",
+                "error": str(e)
+            })
+
+    return jsonify({
+        "status": "success",
+        "markets": results
+    })
+
+
+# ============================================================
+# START
+# ============================================================
+
+if __name__ == "__main__":
+
+    port = int(
+        os.environ.get(
+            "PORT",
+            5000
+        )
+    )
+
+    app.run(
+        host="0.0.0.0",
+        port=port
+    )
