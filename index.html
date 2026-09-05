@@ -1,113 +1,166 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="bn">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TRADE WITH_____ICT-DIPTANGAN</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Firebase SDKs -->
-  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
-  <style>
-    body { background-color: #0a0d14; color: #f3f4f6; font-family: 'Inter', sans-serif; }
-    .glow-cyan { text-shadow: 0 0 10px rgba(0, 242, 254, 0.6); }
-    .card-bg { background: #121824; border: 1px solid #1f293d; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TRADE WITH_____ICT-DIPTANGAN</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { background-color: #080a0f; color: #e2e8f0; font-family: 'Inter', sans-serif; }
+        .deeepr-card { background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); backdrop-filter: blur(12px); border-radius: 12px; }
+        .glow-btn { background: linear-gradient(135deg, #2563eb, #1d4ed8); box-shadow: 0 0 15px rgba(37, 99, 235, 0.3); }
+        .glow-btn:hover { box-shadow: 0 0 25px rgba(37, 99, 235, 0.5); }
+    </style>
 </head>
-<body class="h-screen flex flex-col overflow-hidden">
+<body class="min-h-screen flex flex-col justify-between">
 
-  <!-- LOGIN WALL (Enforced Authentication) -->
-  <div id="login-wall" class="fixed inset-0 z-50 flex items-center justify-center bg-[#0a0d14] p-4">
-    <div class="card-bg p-8 rounded-2xl max-w-md w-full text-center shadow-2xl border border-cyan-500/20">
-      <h1 class="text-2xl font-bold text-cyan-400 mb-2 glow-cyan">TRADE WITH_____ICT-DIPTANGAN</h1>
-      <p class="text-gray-400 text-sm mb-6">Access Institutional ICT Signals & Deeepr.ai Intelligence Terminal</p>
-      <button id="google-login-btn" onclick="loginWithGoogle()" class="w-full bg-cyan-500 hover:bg-cyan-400 text-black font-semibold py-3 px-4 rounded-xl transition flex items-center justify-center gap-2">
-        <span>Sign in with Google</span>
-      </button>
-      <div id="auth-error" class="text-red-400 text-xs mt-4 hidden"></div>
-    </div>
-  </div>
-
-  <!-- MAIN TERMINAL (Hidden until Logged In) -->
-  <div id="main-app" class="hidden flex-1 flex flex-col h-full">
-    <!-- Header Bar -->
-    <header class="card-bg px-6 py-3 flex items-center justify-between border-b border-gray-800">
-      <div class="flex items-center gap-3">
-        <span class="text-cyan-400 font-bold text-lg tracking-wider glow-cyan">TRADE WITH_____ICT-DIPTANGAN</span>
-        <span class="bg-cyan-950 text-cyan-400 text-xs px-2.5 py-1 rounded-full border border-cyan-800">Live AI Engine</span>
-      </div>
-      <div class="flex items-center gap-4">
-        <!-- Asset Selector -->
-        <select id="asset-select" class="bg-[#1a2332] text-sm text-cyan-300 border border-gray-700 rounded-lg px-3 py-1.5 focus:outline-none">
-          <option value="GOLD">TVC:GOLD</option>
-          <option value="QQQ">NASDAQ:QQQ</option>
-          <option value="NQ">CME_MINI:NQ1!</option>
-          <option value="EURUSD">EURUSD</option>
-        </select>
-        <button onclick="logout()" class="text-xs text-gray-400 hover:text-white">Logout</button>
-      </div>
+    <!-- Header -->
+    <header class="border-b border-white/10 bg-[#080a0f]/80 backdrop-blur-md sticky top-0 z-50 px-6 py-4 flex justify-between items-center">
+        <div class="flex items-center space-x-3">
+            <i data-lucide="activity" class="text-blue-500 w-7 h-7"></i>
+            <span class="font-bold text-xl tracking-wider text-white">TRADE WITH_____<span class="text-blue-500">ICT-DIPTANGAN</span></span>
+        </div>
+        <div id="auth-section">
+            <button onclick="alert('Google Login Triggered')" class="flex items-center space-x-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg text-sm font-medium border border-white/10 transition">
+                <i data-lucide="log-in" class="w-4 h-4"></i>
+                <span>Google Login</span>
+            </button>
+        </div>
     </header>
 
-    <!-- Content Workspace -->
-    <div class="flex-1 flex overflow-hidden">
-      <!-- Sidebar -->
-      <aside class="w-64 card-bg p-4 flex flex-col gap-2 border-r border-gray-800">
-        <button onclick="switchTab('dashboard')" class="text-left px-4 py-2.5 rounded-lg text-sm bg-cyan-500/10 text-cyan-400 font-medium">4-Lane Intelligence</button>
-        <button onclick="switchTab('signals')" class="text-left px-4 py-2.5 rounded-lg text-sm text-gray-400 hover:bg-gray-800">Live 5M SMC Signals</button>
-        <button onclick="switchTab('builder')" class="text-left px-4 py-2.5 rounded-lg text-sm text-gray-400 hover:bg-gray-800">Custom AI Rule Builder</button>
-        <button onclick="switchTab('news')" class="text-left px-4 py-2.5 rounded-lg text-sm text-gray-400 hover:bg-gray-800">Global Macro News</button>
-      </aside>
+    <!-- Main Section -->
+    <main class="max-w-7xl mx-auto px-4 py-8 space-y-8 flex-1 w-full">
+        
+        <!-- Hero Text -->
+        <section class="text-center space-y-2 py-2">
+            <h1 class="text-3xl md:text-5xl font-extrabold text-white tracking-tight">
+                Trade on <span class="text-blue-500">reasons.</span> Not rumours.
+            </h1>
+            <p class="text-gray-400 text-sm">Powered by Google Gemini AI & TradingView Realtime Data Engine</p>
+        </section>
 
-      <!-- Main Panels -->
-      <main class="flex-1 p-6 overflow-y-auto">
-        <!-- AI Strategy Prompt Box (Deeepr.ai Style) -->
-        <div class="card-bg p-4 rounded-xl mb-6">
-          <label class="block text-xs font-semibold text-cyan-400 mb-2 uppercase">Custom Telegram Signal Command</label>
-          <div class="flex gap-2">
-            <input id="user-prompt" type="text" placeholder="e.g., Gold 5M candle sweeps 4H liquidity and closes inside range, send Telegram notification" class="flex-1 bg-[#1a2332] border border-gray-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-cyan-500">
-            <button onclick="sendRuleToBackend()" class="bg-cyan-500 hover:bg-cyan-400 text-black px-5 py-2 rounded-lg text-sm font-semibold">Deploy Rule</button>
-          </div>
-        </div>
+        <!-- Live TradingView Chart Widget -->
+        <section class="deeepr-card p-4">
+            <div class="flex items-center gap-2 mb-3">
+                <i data-lucide="line-chart" class="text-blue-400"></i>
+                <h3 class="font-semibold text-lg text-white">Realtime Trading Chart</h3>
+            </div>
+            <div class="h-[450px] w-full rounded-lg overflow-hidden">
+                <!-- TradingView Widget BEGIN -->
+                <div class="tradingview-widget-container" style="height:100%;width:100%">
+                  <div id="tradingview_chart" style="height:calc(100% - 32px);width:100%"></div>
+                  <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+                  <script type="text/javascript">
+                  new TradingView.widget({
+                      "autosize": true,
+                      "symbol": "BINANCE:BTCUSDT",
+                      "interval": "5",
+                      "timezone": "Asia/Kolkata",
+                      "theme": "dark",
+                      "style": "1",
+                      "locale": "en",
+                      "toolbar_bg": "#f1f3f6",
+                      "enable_publishing": false,
+                      "hide_side_toolbar": false,
+                      "allow_symbol_change": true,
+                      "container_id": "tradingview_chart"
+                  });
+                  </script>
+                </div>
+                <!-- TradingView Widget END -->
+            </div>
+        </section>
 
-        <!-- Dynamic Signals Display -->
-        <div id="signals-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <!-- Live Alerts will render here via Backend WebSocket/API -->
-        </div>
-      </main>
-    </div>
-  </div>
+        <!-- Gemini AI & SMC Intelligence -->
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <!-- SMC Signals -->
+            <div class="deeepr-card p-6 space-y-3">
+                <h3 class="font-semibold text-lg text-white flex items-center gap-2 border-b border-white/10 pb-3">
+                    <i data-lucide="layers" class="text-blue-400"></i> 4-Lane SMC Intelligence
+                </h3>
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between p-2.5 rounded bg-white/5"><span>Liquidity Sweep</span><span class="text-emerald-400 font-bold">PDH CLEARED</span></div>
+                    <div class="flex justify-between p-2.5 rounded bg-white/5"><span>Fair Value Gap</span><span class="text-blue-400 font-bold">5M BULLISH FVG</span></div>
+                    <div class="flex justify-between p-2.5 rounded bg-white/5"><span>Killzone</span><span class="text-amber-400 font-bold">NY SILVER BULLET</span></div>
+                    <div class="flex justify-between p-2.5 rounded bg-white/5"><span>Structure</span><span class="text-emerald-400 font-bold">BULLISH CHoCH</span></div>
+                </div>
+            </div>
 
-  <script>
-    // Firebase Setup
-    const firebaseConfig = {
-      apiKey: "AIzaSyBadaNtrOfcRaSskaL0kdYoOJAVhsWuY2c",
-      authDomain: "trade-with-ict-diptangan.firebaseapp.com",
-      projectId: "trade-with-ict-diptangan"
-    };
-    firebase.initializeApp(firebaseConfig);
+            <!-- Google Gemini Live Console -->
+            <div class="deeepr-card p-6 lg:col-span-2 flex flex-col justify-between">
+                <div>
+                    <h3 class="font-semibold text-lg text-white flex items-center gap-2 border-b border-white/10 pb-3 mb-3">
+                        <i data-lucide="bot" class="text-blue-400"></i> Google Gemini Trading Engine
+                    </h3>
+                    <div id="ai-output" class="bg-black/50 rounded-lg p-4 h-40 overflow-y-auto text-xs font-mono text-gray-300 space-y-2 border border-white/5">
+                        <p class="text-gray-500">> Gemini AI Engine status: Ready. Type prompt below to analyze market...</p>
+                    </div>
+                </div>
 
-    function loginWithGoogle() {
-      const provider = new firebase.auth.GoogleAuthProvider();
-      firebase.auth().signInWithPopup(provider)
-        .then(() => {
-          document.getElementById('login-wall').classList.add('hidden');
-          document.getElementById('main-app').classList.remove('hidden');
-        })
-        .catch(err => {
-          document.getElementById('auth-error').innerText = err.message;
-          document.getElementById('auth-error').classList.remove('hidden');
-        });
-    }
+                <div class="mt-4 flex gap-2">
+                    <input type="text" id="ai-input" placeholder="Ask Gemini (e.g., 'Analyze BTC 5M Liquidity & FVG Setup')..." 
+                           class="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500">
+                    <button onclick="callGeminiAPI()" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-1">
+                        <i data-lucide="send" class="w-4 h-4"></i> Analyze
+                    </button>
+                </div>
+            </div>
+        </section>
 
-    function logout() {
-      firebase.auth().signOut().then(() => location.reload());
-    }
+    </main>
 
-    function sendRuleToBackend() {
-      const rule = document.getElementById('user-prompt').value;
-      alert("Custom ICT Rule Deployed to Telegram Engine: " + rule);
-    }
-  </script>
+    <!-- Footer -->
+    <footer class="border-t border-white/10 py-4 text-center text-xs text-gray-500">
+        © 2026 TRADE WITH_____ICT-DIPTANGAN. All rights reserved.
+    </footer>
+
+    <script>
+        lucide.createIcons();
+
+        // Google Gemini API Function
+        async function callGeminiAPI() {
+            const input = document.getElementById('ai-input');
+            const output = document.getElementById('ai-output');
+            const userPrompt = input.value.trim();
+            if(!userPrompt) return;
+
+            // Display User Message
+            const userMsg = document.createElement('p');
+            userMsg.className = 'text-blue-400';
+            userMsg.innerText = '> ' + userPrompt;
+            output.appendChild(userMsg);
+            input.value = '';
+
+            const loadingMsg = document.createElement('p');
+            loadingMsg.className = 'text-yellow-400';
+            loadingMsg.innerText = '[Gemini AI]: Analyzing market structure & ICT levels...';
+            output.appendChild(loadingMsg);
+            output.scrollTop = output.scrollHeight;
+
+            // Connected API Key directly
+            const apiKey = "AQ.Ab8RN6IT0FcV_a8BUJS6cTPrIwI-W626AmH_MjsuKByA5K1eXg"; 
+
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: "You are an ICT SMC Trading Expert AI inside TRADE WITH_____ICT-DIPTANGAN terminal. Answer concisely: " + userPrompt }] }]
+                    })
+                });
+                const data = await response.json();
+                const aiReply = data.candidates[0].content.parts[0].text;
+                
+                loadingMsg.className = 'text-emerald-400';
+                loadingMsg.innerText = '[Gemini AI]: ' + aiReply;
+            } catch (err) {
+                loadingMsg.className = 'text-red-400';
+                loadingMsg.innerText = '[Error]: Could not fetch response from Gemini API. Check API Key validity.';
+            }
+            output.scrollTop = output.scrollHeight;
+        }
+    </script>
 </body>
-    </html>
-    
+</html>
