@@ -1,6 +1,4 @@
-Flask
-requests
 pandas
-numpy
 yfinance
-pytz
+requests
+schedule
