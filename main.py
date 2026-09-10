@@ -8,7 +8,7 @@ import pandas as pd
 import numpy as np
 
 # ==========================================
-# DUMMY WEB SERVER FOR RENDER PORT BINDING
+# DUMMY WEB SERVER FOR RENDER
 # ==========================================
 app = Flask(__name__)
 
@@ -16,9 +16,11 @@ app = Flask(__name__)
 def home():
     return "Bot is running fine!"
 
-def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
+@app.route('/run')
+def trigger_run():
+    send_telegram_msg("⚡ <b>Manual Trigger Triggered!</b> Checking all strategies now...")
+    threading.Thread(target=run_analysis_once).start()
+    return "Analysis triggered successfully! Check Telegram."
 
 # ==========================================
 # CONFIGURATION & USER CREDENTIALS
@@ -48,7 +50,8 @@ def send_telegram_msg(message):
         "parse_mode": "HTML"
     }
     try:
-        requests.post(url, json=payload, timeout=10)
+        res = requests.post(url, json=payload, timeout=10)
+        print(f"Telegram response: {res.status_code}")
     except Exception as e:
         print(f"Telegram API Error: {e}")
 
@@ -238,19 +241,24 @@ def analyze_symbol(symbol):
             send_telegram_msg(msg)
             notified_events.add(event_key)
 
+def run_analysis_once():
+    for symbol in SYMBOLS:
+        analyze_symbol(symbol)
+        time.sleep(1)
+
 def bot_loop():
-    send_telegram_msg("🤖 <b>Trading Bot Started Successfully on Render!</b>\nMonitoring active.")
+    send_telegram_msg("🤖 <b>Trading Bot Live!</b>\nMonitoring started successfully.")
     while True:
         try:
-            for symbol in SYMBOLS:
-                analyze_symbol(symbol)
-                time.sleep(1)
+            run_analysis_once()
         except Exception as e:
             print(f"Error in main loop: {e}")
         time.sleep(60)
 
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
+
 if __name__ == "__main__":
-    # Start Dummy Web Server for Render
     threading.Thread(target=run_flask, daemon=True).start()
-    # Start Trading Bot
     bot_loop()
