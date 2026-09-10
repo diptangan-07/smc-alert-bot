@@ -1,4 +1,3 @@
-
 import os
 import time
 import threading
@@ -42,6 +41,9 @@ logging.basicConfig(
 )
 
 app = Flask(__name__)
+
+# Prevent two manual/automatic scans from running at the same time.
+RUN_LOCK = threading.Lock()
 
 # In-memory state. This is intentionally simple.
 # For a multi-instance production system, move this state to a DB.
@@ -90,7 +92,7 @@ def alert(symbol_name, strategy, message):
         f"Asset: {symbol_name}\n"
         f"Timeframe: 5M trigger\n"
         f"{message}\n"
-        f"⚠️ Alert only — not a trade recommendation."
+        f"⚠️ Trade with your risk."
     )
     logging.info(text.replace("\n", " | "))
     telegram_send(text)
@@ -695,12 +697,12 @@ def process_symbol(name, ticker):
     df = download_5m(ticker)
     if df.empty or len(df) < 50:
         logging.warning("%s: insufficient 5m data", name)
-        return
+        return "insufficient_data"
 
     # Only process the newest completed 5m candle once.
     last_time = df.index[-1]
     if STATE[name]["last_5m"] == str(last_time):
-        return
+        return "already_processed"
 
     STATE[name]["last_5m"] = str(last_time)
 
@@ -715,6 +717,22 @@ def process_symbol(name, ticker):
         crt_check(name, df, "4H", "4H")
     except Exception:
         logging.exception("Strategy error for %s", name)
+        return "strategy_error"
+
+    return "processed"
+
+
+def run_scan_once():
+    """Run one scan across every configured asset."""
+    results = {}
+    with RUN_LOCK:
+        for name, ticker in SYMBOLS.items():
+            try:
+                results[name] = process_symbol(name, ticker)
+            except Exception as exc:
+                logging.exception("Unexpected error for %s", name)
+                results[name] = f"error: {exc}"
+    return results
 
 
 def monitor_loop():
@@ -737,6 +755,31 @@ def home():
         "assets": list(SYMBOLS.keys()),
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
     })
+
+
+@app.get("/run")
+def run_now():
+    """Manual one-time scan endpoint."""
+    if not RUN_LOCK.acquire(blocking=False):
+        return jsonify({"status": "busy", "message": "A scan is already running."}), 429
+
+    try:
+        results = {}
+        for name, ticker in SYMBOLS.items():
+            try:
+                results[name] = process_symbol(name, ticker)
+            except Exception as exc:
+                logging.exception("Manual scan error for %s", name)
+                results[name] = f"error: {exc}"
+
+        return jsonify({
+            "status": "ok",
+            "message": "Manual scan completed.",
+            "results": results,
+            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        })
+    finally:
+        RUN_LOCK.release()
 
 
 @app.get("/health")
