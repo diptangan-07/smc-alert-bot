@@ -2,18 +2,22 @@ import os
 import time
 import requests
 import pandas as pd
+import yfinance as yf
 
-# Environment Variables
+# Retrieve tokens from Environment Variables
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8893050202:AAFbE8vF8-Z5Ci_axHanpJ7cZUQH89MTaOs")
 CHAT_ID = os.getenv("CHAT_ID", "7476331970")
 
 SYMBOLS = {
-    "BTCUSD": "crypto/binance/btcusdt",
-    "ETHUSD": "crypto/binance/ethusdt",
-    "XRPUSD": "crypto/binance/xrpusdt",
-    "EURUSD": "forex/oanda/eur_usd",
-    "GBPUSD": "forex/oanda/gbp_usd",
-    "JPYUSD": "forex/oanda/usd_jpy"
+    "NIFTY50": "^NSEI",
+    "SENSEX": "^BSESN",
+    "BTCUSD": "BTC-USD",
+    "GOLD": "GC=F",
+    "ETHUSD": "ETH-USD",
+    "XRPUSD": "XRP-USD",
+    "EURUSD": "EURUSD=X",
+    "JPYUSD": "JPY=X",
+    "GBPUSD": "GBPUSD=X"
 }
 
 def send_alert(message):
@@ -22,64 +26,85 @@ def send_alert(message):
     try:
         requests.post(url, data=payload, timeout=10)
     except Exception as e:
-        print(f"Telegram error: {e}")
+        print(f"Failed to send alert: {e}")
 
-def get_market_data(symbol_path):
-    # Free Market Data API fallback
+def fetch_data(symbol, interval, period):
     try:
-        url = f"https://api.stooq.com/q/l/?s={symbol_path}&f=sdohcv&h&e=csv"
-        df = pd.read_csv(url)
-        if not df.empty and 'Close' in df.columns:
-            return df
+        df = yf.download(tickers=symbol, interval=interval, period=period, progress=False)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        return df
     except Exception as e:
-        print(f"Data fetch error for {symbol_path}: {e}")
-    return None
+        print(f"Error fetching {symbol} ({interval}): {e}")
+        return None
 
-def process_strategies(name, df):
-    if df is None or len(df) < 5:
+def analyze_market(name, symbol):
+    df_5m = fetch_data(symbol, "5m", "5d")
+    df_1d = fetch_data(symbol, "1d", "1mo")
+    df_1h = fetch_data(symbol, "1h", "10d")
+    df_4h = fetch_data(symbol, "1h", "1mo") # Resampled from 1h for stability
+
+    if df_5m is None or df_1d is None or len(df_5m) < 10 or len(df_1d) < 2:
         return
 
-    close = df['Close'].iloc[-1]
-    high = df['High'].iloc[-1]
-    low = df['Low'].iloc[-1]
-    
-    prev_high = df['High'].iloc[-2]
-    prev_low = df['Low'].iloc[-2]
+    # Daily Levels
+    p_high = df_1d['High'].iloc[-2]
+    p_low = df_1d['Low'].iloc[-2]
 
-    # Strategy 1 & 7: Liquidity Sweep
-    if high > prev_high and close < prev_high:
-        send_alert(f"🚨 **Strategy 1 & 7 Alert [{name}]**: High Liquidity Sweep! Price closed back inside previous range.")
-    elif low < prev_low and close > prev_low:
-        send_alert(f"🚨 **Strategy 1 & 7 Alert [{name}]**: Low Liquidity Sweep! Price closed back inside previous range.")
+    # Current 5m Candle Data
+    c_close = df_5m['Close'].iloc[-1]
+    c_high = df_5m['High'].iloc[-1]
+    c_low = df_5m['Low'].iloc[-1]
+    p_close = df_5m['Close'].iloc[-2]
+    p_volume = df_5m['Volume'].iloc[-1]
+    avg_volume = df_5m['Volume'].tail(20).mean()
 
-    # Strategy 2: CHoCH
-    recent_high = df['High'].tail(5).max()
-    if close > recent_high:
-        send_alert(f"🚨 **Strategy 2 Alert [{name}]**: CHoCH detected! Structure broken to upside.")
+    # --- Strategy 1: PDH/PDL Liquidity Sweep & Re-entry ---
+    if (c_high > p_high and c_close < p_high) or (c_low < p_low and c_close > p_low):
+        send_alert(f"🚨 **Strategy 1 Alert [{name}]**: Liquidity sweep detected on 5m! Price returned inside Previous Day Range.")
 
-    # Strategy 3: BOS
-    if close > prev_high:
-        send_alert(f"🚨 **Strategy 3 Alert [{name}]**: BOS (Break of Structure) confirmed!")
+    # --- Strategy 2: CHoCH (Change of Character) ---
+    recent_high = df_5m['High'].tail(10).max()
+    recent_low = df_5m['Low'].tail(10).min()
+    if p_close < recent_high and c_close > recent_high:
+        send_alert(f"🚨 **Strategy 2 Alert [{name}]**: CHoCH detected! Price broke previous structural high with body closing.")
 
-    # Strategy 5: Equal High/Low Sweep
-    if abs(df['High'].iloc[-2] - df['High'].iloc[-3]) / df['High'].iloc[-2] < 0.001:
-        if high > df['High'].iloc[-2]:
-            send_alert(f"🚨 **Strategy 5 Alert [{name}]**: Equal High Liquidity Swept!")
+    # --- Strategy 3: BOS (Break of Structure in Uptrend/Downtrend) ---
+    higher_high = df_5m['High'].tail(5).max()
+    if c_close > higher_high:
+        send_alert(f"🚨 **Strategy 3 Alert [{name}]**: BOS confirmed! Continuation of trend with fresh candle closing.")
+
+    # --- Strategy 4: Breakout with Low/High Volume Continuation ---
+    if c_close > p_high and p_volume < avg_volume:
+        send_alert(f"🚨 **Strategy 4 Alert [{name}]**: Breakout above PDH with low volume. Watch for potential fakeout or trend formation.")
+
+    # --- Strategy 5: Equal Highs / Equal Lows (EQH/EQL) Sweep (1H / 4H) ---
+    if df_1h is not None and len(df_1h) >= 5:
+        h1 = df_1h['High'].iloc[-2]
+        h2 = df_1h['High'].iloc[-3]
+        if abs(h1 - h2) / h1 < 0.001 and c_high > max(h1, h2):
+            send_alert(f"🚨 **Strategy 5 Alert [{name}]**: Higher Timeframe (1H/4H) EQH Liquidity Sweep Detected!")
+
+    # --- Strategy 6: Strong Volume Breakout & Re-entry Alert ---
+    if c_close < p_high and p_close > p_high and p_volume > (avg_volume * 1.5):
+        send_alert(f"🚨 **Strategy 6 Alert [{name}]**: Price re-entered PDH/PDL range after a high-volume breakout!")
+
+    # --- Strategy 7: CRT (Candle Range Theory) 1H & 4H Sweep via 5M ---
+    if df_1h is not None and len(df_1h) >= 2:
+        h1_high = df_1h['High'].iloc[-2]
+        h1_low = df_1h['Low'].iloc[-2]
+        if c_high > h1_high or c_low < h1_low:
+            send_alert(f"🚨 **Strategy 7 Alert [{name}]**: 1H CRT Liquidity Sweep detected by 5m candle!")
 
 def main():
-    print("Bot startup successful. Monitoring started...")
-    send_alert("🤖 **Trading Bot active & running on Render!**")
-    
+    print("Trading Bot Started Monitoring...")
     while True:
-        for name, path in SYMBOLS.items():
+        for name, symbol in SYMBOLS.items():
             try:
-                df = get_market_data(path)
-                process_strategies(name, df)
+                analyze_market(name, symbol)
             except Exception as e:
-                print(f"Error processing {name}: {e}")
-        
-        # 3 minute interval
-        time.sleep(180)
+                print(f"Error executing logic for {name}: {e}")
+        time.sleep(300) # Run analysis every 5 minutes
 
 if __name__ == "__main__":
     main()
